@@ -1,0 +1,573 @@
+/* ================================
+   Global Reset & Base Styles
+   إعادة ضبط عامة وإعدادات أساسية
+================================== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  font-family: system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+  background: #020617;
+  color: #fff;
+}
+
+/* ================================
+   Animated Background
+   الخلفية المتحركة الناعمة
+================================== */
+.bg {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at top, #1d4ed8 0, transparent 60%),
+    radial-gradient(circle at bottom, #7c3aed 0, transparent 55%),
+    #020617;
+  opacity: 0.35;
+  z-index: -2;
+  animation: bgMove 30s linear infinite alternate;
+}
+
+.bg::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.16) 0, transparent 70%);
+  mix-blend-mode: screen;
+  animation: rotateGlow 24s linear infinite;
+}
+
+@keyframes bgMove {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(-20px, 10px, 0) scale(1.05); }
+}
+
+@keyframes rotateGlow {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ================================
+   Main Shell Layout
+   الهيكل العام للواجهة
+================================== */
+.shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 26px 18px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* ================================
+   Top Bar (Title & Project Info)
+   شريط علوي: عنوان المراية ومعلومات المشروع
+================================== */
+.top-bar {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.halo-title {
+  font-size: 46px;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  font-weight: 700;
+  background: linear-gradient(120deg, #60a5fa, #a855f7, #22d3ee);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 25px rgba(56, 189, 248, 0.35);
+  animation: titleGradient 9s ease-in-out infinite,
+    titleGlow 3.5s ease-in-out infinite;
+}
+
+.subtitle {
+  margin-top: 3px;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.project-tagline {
+  margin-top: 3px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+
+@keyframes titleGradient {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+@keyframes titleGlow {
+  0%, 100% {
+    filter: drop-shadow(0 0 8px rgba(96, 165, 250, 0.4));
+  }
+  50% {
+    filter: drop-shadow(0 0 20px rgba(45, 212, 191, 0.6));
+  }
+}
+
+/* ================================
+   Greeting Block
+   بلوك الترحيب بالمستخدم
+================================== */
+.greeting-block {
+  text-align: center;
+  margin-top: 6px;
+  margin-bottom: 8px;
+  animation: fadeIn 0.8s ease-out 0.12s both;
+}
+
+.greeting-line {
+  font-size: 20px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.greeting-highlight {
+  font-weight: 600;
+  color: #38bdf8;
+}
+
+.greeting-message {
+  margin-top: 2px;
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ================================
+   Middle Area: Two Columns
+   المنطقة الوسطى: عمود يسار وعمود يمين
+================================== */
+.middle {
+  margin-top: 4px;
+  display: grid;
+  grid-template-columns: 1.3fr 0.9fr;
+  gap: 18px;
+  padding-top: 8px;
+  padding-bottom: 10px;
+  align-items: flex-start;
+}
+
+.left-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-left: 6px;
+  padding-right: 4px;
+  justify-content: flex-start;
+}
+
+.right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 6px;
+  padding-left: 4px;
+  justify-content: flex-start;
+}
+
+/* ================================
+   Clock Card (Right Side)
+   بوكس الساعة في العمود اليمين
+================================== */
+.clock-card {
+  background: radial-gradient(circle at top left,
+      rgba(59, 130, 246, 0.25),
+      transparent 55%),
+    rgba(15, 23, 42, 0.9);
+  border-radius: 18px;
+  padding: 18px 20px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.clock-main {
+  text-align: center;
+}
+
+.clock {
+  font-size: 70px;
+  font-weight: 300;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 24px rgba(59, 130, 246, 0.35);
+}
+
+.date {
+  margin-top: 4px;
+  font-size: 17px;
+  opacity: 0.85;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+/* ================================
+   Generic Card Style
+   شكل البوكس الزجاجي العام
+================================== */
+.card {
+  background: radial-gradient(circle at top left,
+      rgba(59, 130, 246, 0.28),
+      transparent 55%),
+    rgba(15, 23, 42, 0.88);
+  border-radius: 18px;
+  padding: 14px 18px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  position: relative;
+  overflow: hidden;
+  animation: cardRise 0.6s ease-out both;
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(
+    circle at top,
+    rgba(129, 140, 248, 0.18),
+    transparent 65%
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 20px 45px rgba(37, 99, 235, 0.55);
+  border-color: rgba(96, 165, 250, 0.9);
+}
+
+.card:hover::before {
+  opacity: 1;
+}
+
+@keyframes cardRise {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #bfdbfe;
+}
+
+.chip {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.65);
+  opacity: 0.8;
+}
+
+/* ================================
+   Weather Card
+   بوكس الطقس + اقتراح اللبس
+================================== */
+.weather-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.weather-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weather-temp {
+  font-size: 30px;
+  font-weight: 300;
+}
+
+.weather-desc {
+  font-size: 15px;
+  opacity: 0.85;
+}
+
+.weather-location {
+  font-size: 12px;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+.weather-avatar {
+  width: 60px;
+  text-align: center;
+  font-size: 34px;
+  line-height: 1.1;
+  animation: floatIcon 3.5s ease-in-out infinite;
+}
+
+@keyframes floatIcon {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+
+.weather-advice {
+  margin-top: 6px;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+/* ================================
+   Sensors Card
+   بوكس الحساسات (BME280, PIR, Gesture)
+================================== */
+.sensor-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.sensor-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-block: 3px;
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.4);
+}
+
+.sensor-item:last-child {
+  border-bottom: none;
+}
+
+.sensor-label {
+  opacity: 0.78;
+  letter-spacing: 0.03em;
+}
+
+.sensor-value {
+  font-weight: 600;
+  color: #60a5fa;
+}
+
+.motion-on {
+  color: #4ade80;
+}
+
+.motion-off {
+  color: #6b7280;
+}
+
+/* ================================
+   Apps / Shortcuts Card
+   بوكس الاختصارات للتطبيقات
+================================== */
+.apps-row {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.85;
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.app-pill span {
+  font-size: 14px;
+}
+
+/* ================================
+   Today Card
+   بوكس اليوم والفعاليات البسيطة
+================================== */
+.event-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.time-message {
+  font-size: 13px;
+  opacity: 0.7;
+  margin-bottom: 2px;
+}
+
+.event {
+  padding: 6px 8px;
+  border-radius: 12px;
+  background: radial-gradient(circle at left,
+      rgba(59, 130, 246, 0.3),
+      transparent 55%);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.event-time {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  opacity: 0.8;
+}
+
+.event-title {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* ================================
+   Daily Tip Card
+   بوكس النصيحة اليومية
+================================== */
+.quote-text {
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.6;
+  opacity: 0.92;
+  font-style: italic;
+}
+
+.quote-author {
+  margin-top: 4px;
+  font-size: 13px;
+  opacity: 0.7;
+  text-align: right;
+}
+
+/* ================================
+   Music Card
+   بوكس الأغنية الحالية (Now Playing)
+================================== */
+.music-main {
+  margin-top: 4px;
+}
+
+.music-status {
+  font-size: 13px;
+  opacity: 0.75;
+  margin-bottom: 4px;
+}
+
+.music-track {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.music-artist {
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+/* ================================
+   Calendar Card
+   بوكس التقويم الشهري
+================================== */
+.calendar-body {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.calendar-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.calendar-month {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.cal-cell {
+  text-align: center;
+  padding: 2px 0;
+  opacity: 0.7;
+}
+
+.cal-header {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.cal-day {
+  font-size: 12px;
+  border-radius: 999px;
+}
+
+.cal-today {
+  background: rgba(59, 130, 246, 0.9);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.7);
+  opacity: 1;
+}
+
+/* ================================
+   Credits Text
+   نص الحقوق في الأسفل
+================================== */
+.credits {
+  position: fixed;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  text-align: center;
+}
