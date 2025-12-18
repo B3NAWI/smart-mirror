@@ -1,0 +1,8 @@
+HALO MIRROR
+Version: 1.1
+Date: 2025-01-18
+
+Changes:
+- Added dashboard components
+- Refactored left column cards
+- Improved project structure
