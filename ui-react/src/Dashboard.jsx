@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import ClockCard from "./components/ClockCard";
 import NowPlayingCard from "./components/NowPlayingCard";
+import CalendarCard from "./components/CalendarCard";
+import SensorsCard from "./components/SensorsCard";
+import WeatherCard from "./components/WeatherCard";
+import TodayCard from "./components/TodayCard";
+import DailyTipCard from "./components/DailyTipCard";
+import AppsCard from "./components/AppsCard";
+
+
 
 const userName = "Hilal";
 
@@ -150,7 +158,6 @@ export default function Dashboard() {
     setWeather((w) => ({ ...w, tempC: sensorData.temperature }));
   }, [sensorData.temperature]);
 
-  // Mock sensor changes
   useEffect(() => {
     const id = setInterval(() => {
       const temp = 18 + Math.random() * 12;
@@ -172,7 +179,6 @@ export default function Dashboard() {
     return () => clearInterval(id);
   }, []);
 
-  // Dev hooks
   useEffect(() => {
     window.setSensorDataFromJSON = (json) => {
       setSensorData((prev) => ({ ...prev, ...json }));
@@ -201,7 +207,7 @@ export default function Dashboard() {
           <div className="halo-title">HALLO MIRROR</div>
           <div className="subtitle">Smart Ambient Dashboard</div>
           <div className="project-tagline">
-            HALLO MIRROR · BY HILAL DALLASHI &amp; BARAA AMRO
+            HALLO MIRROR · BY HILAL DALLASHI &amp; Baraa Amro
           </div>
         </div>
 
@@ -214,141 +220,21 @@ export default function Dashboard() {
         </div>
 
         <div className="middle">
-          {/* LEFT */}
+          {/* ✅ LEFT COL – كل البوكسات */}
           <div className="left-col">
-            <div className="card">
-              <div className="card-title-row">
-                <div className="card-title">Weather</div>
-                <div className="chip">Placeholder</div>
-              </div>
-
-              <div className="weather-row">
-                <div className="weather-main">
-                  <div className="weather-temp" id="weather-temp">{weather.tempC.toFixed(1)}°C</div>
-                  <div className="weather-desc" id="weather-desc">{weather.desc}</div>
-                  <div className="weather-location" id="weather-loc">{weather.loc}</div>
-                </div>
-                <div className="weather-avatar" id="weather-avatar">{avatar}</div>
-              </div>
-
-              <div className="weather-advice" id="weather-advice">{advice}</div>
-            </div>
-
-            <div className="card">
-              <div className="card-title-row">
-                <div className="card-title">Sensors</div>
-                <div className="chip">ESP32 · BME280 · PIR · APDS9960</div>
-              </div>
-
-              <div className="sensor-list">
-                <div className="sensor-item">
-                  <span className="sensor-label">Temperature</span>
-                  <span className="sensor-value" id="sensor-temp">{sensorData.temperature.toFixed(1)}°C</span>
-                </div>
-                <div className="sensor-item">
-                  <span className="sensor-label">Humidity</span>
-                  <span className="sensor-value" id="sensor-humidity">{sensorData.humidity}%</span>
-                </div>
-                <div className="sensor-item">
-                  <span className="sensor-label">Pressure</span>
-                  <span className="sensor-value" id="sensor-pressure">{sensorData.pressure} hPa</span>
-                </div>
-                <div className="sensor-item">
-                  <span className="sensor-label">Motion</span>
-                  <span className={`sensor-value ${sensorData.motion ? "motion-on" : "motion-off"}`} id="sensor-motion">
-                    {sensorData.motion ? "Detected" : "None"}
-                  </span>
-                </div>
-                <div className="sensor-item">
-                  <span className="sensor-label">Gesture</span>
-                  <span className="sensor-value" id="sensor-gesture">
-                    {sensorData.gesture === "none"
-                      ? "None"
-                      : sensorData.gesture[0].toUpperCase() + sensorData.gesture.slice(1)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-title-row">
-                <div className="card-title">Today</div>
-                <div className="chip">Overview</div>
-              </div>
-
-              <div className="time-message" id="time-of-day-message">{message}</div>
-
-              <div className="event-list">
-                <div className="event">
-                  <div className="event-time">09:00</div>
-                  <div className="event-title">Morning Focus</div>
-                </div>
-                <div className="event">
-                  <div className="event-time">13:00</div>
-                  <div className="event-title">Deep Work / Study</div>
-                </div>
-                <div className="event">
-                  <div className="event-time">19:00</div>
-                  <div className="event-title">Relax &amp; Recharge</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-title-row">
-                <div className="card-title">Daily Tip</div>
-                <div className="chip">Auto-updated</div>
-              </div>
-              <div className="quote-text" id="daily-tip">"{tip.text}"</div>
-              <div className="quote-author" id="tip-source">— {tip.source}</div>
-            </div>
-
-            <div className="card">
-              <div className="card-title-row">
-                <div className="card-title">Apps &amp; Shortcuts</div>
-                <div className="chip">Future actions</div>
-              </div>
-
-              <div className="apps-row">
-                <div className="app-pill"><span>▶</span> YouTube</div>
-                <div className="app-pill"><span>🎵</span> Music</div>
-                <div className="app-pill"><span>📰</span> News</div>
-                <div className="app-pill"><span>🧠</span> AI Assistant</div>
-                <div className="app-pill"><span>⚙️</span> Settings</div>
-              </div>
-            </div>
+            <WeatherCard weather={weather} avatar={avatar} advice={advice} />
+            <SensorsCard sensorData={sensorData} />
+            <TodayCard message={message} />
+            <DailyTipCard tip={tip} />
+            <AppsCard />
+            
           </div>
 
-          {/* RIGHT */}
+          {/* ✅ RIGHT COL */}
           <div className="right-col">
             <ClockCard clock={clock} dateText={dateText} />
-
             <NowPlayingCard nowPlaying={nowPlaying} />
-
-            <div className="card">
-              <div className="card-title-row">
-                <div className="card-title">Calendar</div>
-                <div className="chip">This month</div>
-              </div>
-
-              <div className="calendar-body">
-                <div className="calendar-header-row">
-                  <div className="calendar-month" id="calendar-month">{calendar.title}</div>
-                </div>
-
-                <div className="calendar-grid" id="calendar-grid">
-                  {calendar.cells.map((c, idx) => {
-                    if (c.type === "header") return <div key={idx} className="cal-cell cal-header">{c.label}</div>;
-                    if (c.type === "empty") return <div key={idx} className="cal-cell"></div>;
-                    return (
-                      <div key={idx} className={`cal-cell cal-day ${c.isToday ? "cal-today" : ""}`}>
-                        {c.day}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
+            <CalendarCard calendar={calendar} />
           </div>
         </div>
       </div>

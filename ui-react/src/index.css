@@ -487,6 +487,8 @@ body {
 .music-main {
   margin-top: 4px;
 }
+body { outline: 6px solid red; }
+
 
 .music-status {
   font-size: 13px;
