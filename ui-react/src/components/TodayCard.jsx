@@ -1,12 +1,10 @@
-export default function TodayCard({ message }) {
+export default function TodayCard() {
   return (
     <div className="card">
       <div className="card-title-row">
         <div className="card-title">Today</div>
         <div className="chip">Overview</div>
       </div>
-
-      <div className="time-message" id="time-of-day-message">{message}</div>
 
       <div className="event-list">
         <div className="event">

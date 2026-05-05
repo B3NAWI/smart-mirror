@@ -1,14 +1,12 @@
-# state.py
-# آخر حالة للمراية / Latest mirror state
-
 from dataclasses import dataclass, asdict
 from threading import Lock
+from typing import Optional
 
 @dataclass
 class MirrorState:
-    temperature: float | None = None
-    humidity: int | None = None
-    pressure: int | None = None
+    temperature: Optional[float] = None
+    humidity: Optional[int] = None
+    pressure: Optional[int] = None
     motion: bool = False
     gesture: str = "none"
 

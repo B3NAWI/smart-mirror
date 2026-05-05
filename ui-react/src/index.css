@@ -100,14 +100,6 @@ body {
   opacity: 0.7;
 }
 
-.project-tagline {
-  margin-top: 3px;
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  opacity: 0.5;
-}
-
 @keyframes titleGradient {
   0%, 100% { background-position: 0% 50%; }
   50%      { background-position: 100% 50%; }
@@ -143,12 +135,6 @@ body {
 .greeting-highlight {
   font-weight: 600;
   color: #38bdf8;
-}
-
-.greeting-message {
-  margin-top: 2px;
-  font-size: 14px;
-  opacity: 0.7;
 }
 
 @keyframes fadeIn {
@@ -331,6 +317,12 @@ body {
   letter-spacing: 0.16em;
 }
 
+.weather-region {
+  font-size: 11px;
+  opacity: 0.62;
+  letter-spacing: 0.08em;
+}
+
 .weather-avatar {
   width: 60px;
   text-align: center;
@@ -350,73 +342,703 @@ body {
   opacity: 0.8;
 }
 
+.weather-location-button {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid rgba(96, 165, 250, 0.34);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.7);
+  color: #dbeafe;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.weather-location-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(125, 211, 252, 0.7);
+  background: rgba(30, 41, 59, 0.82);
+}
+
+.weather-permission-box {
+  margin-top: 10px;
+}
+
+.weather-permission-help {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(191, 219, 254, 0.72);
+}
+
 /* ================================
    Sensors Card
    بوكس الحساسات (BME280, PIR, Gesture)
 ================================== */
-.sensor-list {
-  margin-top: 6px;
+.sensor-overview {
+  margin-top: 8px;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 14px;
-}
-
-.sensor-item {
-  display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: baseline;
-  padding-block: 3px;
-  border-bottom: 1px dashed rgba(148, 163, 184, 0.4);
+  gap: 14px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: linear-gradient(
+    135deg,
+    rgba(37, 99, 235, 0.18),
+    rgba(15, 23, 42, 0.24)
+  );
+  border: 1px solid rgba(96, 165, 250, 0.2);
 }
 
-.sensor-item:last-child {
-  border-bottom: none;
+.sensor-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.38);
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  color: rgba(219, 234, 254, 0.94);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.sensor-label {
-  opacity: 0.78;
-  letter-spacing: 0.03em;
+.sensor-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.6);
+  animation: sensorPulse 2s ease-out infinite;
 }
 
-.sensor-value {
+.sensor-overview-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(226, 232, 240, 0.72);
+  text-align: right;
+}
+
+.sensor-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sensor-panel {
+  position: relative;
+  padding: 14px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: linear-gradient(
+      160deg,
+      rgba(59, 130, 246, 0.16),
+      rgba(15, 23, 42, 0.76)
+    ),
+    rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.sensor-panel::before {
+  content: "";
+  position: absolute;
+  width: 110px;
+  height: 110px;
+  top: -52px;
+  right: -38px;
+  border-radius: 50%;
+  opacity: 0.16;
+  pointer-events: none;
+}
+
+.sensor-panel--temp::before {
+  background: radial-gradient(circle, #fb7185 0%, transparent 72%);
+}
+
+.sensor-panel--humidity::before {
+  background: radial-gradient(circle, #22d3ee 0%, transparent 72%);
+}
+
+.sensor-panel--pressure::before {
+  background: radial-gradient(circle, #a78bfa 0%, transparent 72%);
+}
+
+.sensor-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sensor-orb {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(239, 246, 255, 0.96);
+  background: linear-gradient(
+    145deg,
+    rgba(59, 130, 246, 0.65),
+    rgba(14, 165, 233, 0.18)
+  );
+  border: 1px solid rgba(191, 219, 254, 0.2);
+  box-shadow: 0 12px 28px rgba(30, 64, 175, 0.28);
+}
+
+.sensor-panel--temp .sensor-orb {
+  background: linear-gradient(
+    145deg,
+    rgba(248, 113, 113, 0.78),
+    rgba(234, 88, 12, 0.2)
+  );
+}
+
+.sensor-panel--humidity .sensor-orb {
+  background: linear-gradient(
+    145deg,
+    rgba(34, 211, 238, 0.78),
+    rgba(37, 99, 235, 0.18)
+  );
+}
+
+.sensor-panel--pressure .sensor-orb {
+  background: linear-gradient(
+    145deg,
+    rgba(167, 139, 250, 0.78),
+    rgba(59, 130, 246, 0.18)
+  );
+}
+
+.sensor-panel-meta {
+  min-width: 0;
+}
+
+.sensor-panel-label {
+  font-size: 12px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.86);
+}
+
+.sensor-panel-note {
+  margin-top: 3px;
+  font-size: 12px;
+  color: rgba(226, 232, 240, 0.62);
+}
+
+.sensor-panel-value {
+  margin-top: 18px;
+  font-size: 28px;
   font-weight: 600;
-  color: #60a5fa;
+  letter-spacing: 0.02em;
+  color: #f8fafc;
+}
+
+.sensor-meter {
+  margin-top: 12px;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.sensor-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #60a5fa, #22d3ee);
+  box-shadow: 0 0 14px rgba(34, 211, 238, 0.26);
+  transition: width 0.45s ease;
+}
+
+.sensor-panel--temp .sensor-meter span {
+  background: linear-gradient(90deg, #fb7185, #f59e0b);
+  box-shadow: 0 0 14px rgba(248, 113, 113, 0.24);
+}
+
+.sensor-panel--pressure .sensor-meter span {
+  background: linear-gradient(90deg, #a78bfa, #60a5fa);
+  box-shadow: 0 0 14px rgba(167, 139, 250, 0.24);
+}
+
+.sensor-status-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sensor-status-card {
+  padding: 14px;
+  border-radius: 18px;
+  background: linear-gradient(
+      150deg,
+      rgba(30, 41, 59, 0.82),
+      rgba(15, 23, 42, 0.95)
+    ),
+    rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  transition: border-color 0.25s ease, transform 0.25s ease;
+}
+
+.sensor-status-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(96, 165, 250, 0.32);
+}
+
+.sensor-status-card--active {
+  border-color: rgba(74, 222, 128, 0.34);
+  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.08);
+}
+
+.sensor-status-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sensor-status-label {
+  font-size: 12px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.82);
+}
+
+.sensor-status-badge {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(30, 41, 59, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  font-size: 12px;
+  font-weight: 600;
+  color: #93c5fd;
+}
+
+.sensor-status-badge--gesture {
+  color: #c4b5fd;
+}
+
+.sensor-status-body {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sensor-wave {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 34px;
+}
+
+.sensor-wave span {
+  width: 6px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #4ade80, rgba(74, 222, 128, 0.25));
+  animation: sensorWave 1.4s ease-in-out infinite;
+}
+
+.sensor-wave span:nth-child(1) {
+  height: 18px;
+}
+
+.sensor-wave span:nth-child(2) {
+  height: 30px;
+  animation-delay: 0.18s;
+}
+
+.sensor-wave span:nth-child(3) {
+  height: 22px;
+  animation-delay: 0.32s;
+}
+
+.sensor-status-copy {
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(226, 232, 240, 0.72);
+}
+
+.sensor-gesture-row {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.sensor-gesture-shape {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: linear-gradient(
+    145deg,
+    rgba(99, 102, 241, 0.3),
+    rgba(34, 211, 238, 0.12)
+  );
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.gesture-arrow {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  transform: rotate(45deg);
+  border-top: 3px solid #93c5fd;
+  border-right: 3px solid #93c5fd;
+  opacity: 0.92;
+}
+
+.gesture-arrow--left {
+  transform: rotate(-135deg);
+}
+
+.gesture-arrow--right {
+  transform: rotate(45deg);
+}
+
+.gesture-arrow--up {
+  transform: rotate(-45deg);
+}
+
+.gesture-arrow--down {
+  transform: rotate(135deg);
+}
+
+.gesture-arrow--none {
+  width: 12px;
+  height: 12px;
+  transform: none;
+  border: none;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.58);
+  box-shadow: 0 0 16px rgba(148, 163, 184, 0.18);
+}
+
+.sensor-gesture-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: #e0f2fe;
 }
 
 .motion-on {
   color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.32);
+  background: rgba(20, 83, 45, 0.22);
 }
 
 .motion-off {
-  color: #6b7280;
+  color: #94a3b8;
+}
+
+@keyframes sensorPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(56, 189, 248, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
+  }
+}
+
+@keyframes sensorWave {
+  0%, 100% {
+    transform: scaleY(0.7);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleY(1.12);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1280px) {
+  .sensor-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sensor-panel--pressure {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 860px) {
+  .sensor-overview {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .sensor-overview-text {
+    text-align: left;
+  }
+
+  .sensor-grid,
+  .sensor-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sensor-panel--pressure {
+    grid-column: auto;
+  }
 }
 
 /* ================================
    Apps / Shortcuts Card
    بوكس الاختصارات للتطبيقات
 ================================== */
-.apps-row {
+.apps-card {
+  background:
+    radial-gradient(circle at top left, rgba(45, 212, 191, 0.1), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(96, 165, 250, 0.12), transparent 42%),
+    rgba(15, 23, 42, 0.9);
+}
+
+.apps-stage {
+  margin-top: 8px;
+}
+
+.apps-banner {
+  padding: 14px 16px;
+  border-radius: 20px;
+  background:
+    linear-gradient(145deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.95)),
+    rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.apps-banner-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #e0f2fe;
+}
+
+.apps-banner-copy {
   margin-top: 6px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.app-pill {
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.6);
   font-size: 13px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  opacity: 0.85;
-  background: rgba(15, 23, 42, 0.9);
+  line-height: 1.55;
+  color: rgba(226, 232, 240, 0.7);
 }
 
-.app-pill span {
+.apps-feature-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.app-feature {
+  position: relative;
+  overflow: hidden;
+  min-height: 132px;
+  padding: 14px;
+  border-radius: 20px;
+  background:
+    linear-gradient(160deg, rgba(30, 41, 59, 0.82), rgba(15, 23, 42, 0.98)),
+    rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+}
+
+.app-feature::before {
+  content: "";
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  top: -56px;
+  right: -44px;
+  border-radius: 999px;
+  opacity: 0.22;
+  pointer-events: none;
+}
+
+.app-feature:hover,
+.app-quick:hover {
+  transform: translateY(-2px);
+  border-color: rgba(96, 165, 250, 0.24);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.22);
+}
+
+.app-feature-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-orb {
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #f8fafc;
+  background: linear-gradient(145deg, rgba(96, 165, 250, 0.26), rgba(30, 41, 59, 0.4));
+  border: 1px solid rgba(191, 219, 254, 0.16);
+}
+
+.app-feature-state {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.72);
+}
+
+.app-feature-name {
+  margin-top: 22px;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.15;
+  color: #f8fafc;
+}
+
+.app-feature-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(226, 232, 240, 0.66);
+}
+
+.apps-quick-grid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.app-quick {
+  position: relative;
+  overflow: hidden;
+  padding: 14px;
+  border-radius: 18px;
+  background:
+    linear-gradient(155deg, rgba(30, 41, 59, 0.78), rgba(15, 23, 42, 0.96)),
+    rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+}
+
+.app-quick::before {
+  content: "";
+  position: absolute;
+  width: 88px;
+  height: 88px;
+  top: -44px;
+  right: -30px;
+  border-radius: 999px;
+  opacity: 0.2;
+  pointer-events: none;
+}
+
+.app-quick-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app-quick-orb {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #f8fafc;
+  background: linear-gradient(145deg, rgba(96, 165, 250, 0.2), rgba(30, 41, 59, 0.38));
+  border: 1px solid rgba(191, 219, 254, 0.14);
+}
+
+.app-quick-meta {
+  min-width: 0;
+}
+
+.app-quick-name {
   font-size: 14px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.app-quick-hint {
+  margin-top: 3px;
+  font-size: 12px;
+  color: rgba(226, 232, 240, 0.62);
+}
+
+.app-feature--red::before,
+.app-quick--red::before {
+  background: radial-gradient(circle, rgba(248, 113, 113, 0.92), transparent 72%);
+}
+
+.app-feature--cyan::before,
+.app-quick--cyan::before {
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.92), transparent 72%);
+}
+
+.app-feature--amber::before,
+.app-quick--amber::before {
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.88), transparent 72%);
+}
+
+.app-feature--violet::before,
+.app-quick--violet::before {
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.92), transparent 72%);
+}
+
+.app-feature--emerald::before,
+.app-quick--emerald::before {
+  background: radial-gradient(circle, rgba(74, 222, 128, 0.92), transparent 72%);
+}
+
+.app-feature--slate::before,
+.app-quick--slate::before {
+  background: radial-gradient(circle, rgba(148, 163, 184, 0.85), transparent 72%);
+}
+
+@media (max-width: 900px) {
+  .apps-feature-grid,
+  .apps-quick-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .app-feature {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .app-feature-name {
+    font-size: 18px;
+  }
 }
 
 /* ================================
@@ -465,45 +1087,299 @@ body {
    Daily Tip Card
    بوكس النصيحة اليومية
 ================================== */
+.tip-card {
+  background:
+    radial-gradient(circle at top left, rgba(168, 85, 247, 0.18), transparent 38%),
+    radial-gradient(circle at bottom right, rgba(45, 212, 191, 0.12), transparent 42%),
+    rgba(15, 23, 42, 0.9);
+}
+
+.tip-shell {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.tip-orb {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(192, 132, 252, 0.5), transparent 58%),
+    linear-gradient(145deg, rgba(99, 102, 241, 0.26), rgba(15, 23, 42, 0.72)),
+    rgba(15, 23, 42, 0.86);
+  border: 1px solid rgba(192, 132, 252, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 16px 34px rgba(76, 29, 149, 0.2);
+}
+
+.tip-orb-core {
+  font-size: 24px;
+  line-height: 1;
+  color: #f5d0fe;
+  text-shadow: 0 0 18px rgba(216, 180, 254, 0.42);
+}
+
+.tip-copy {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.quote-mark {
+  position: absolute;
+  top: -10px;
+  left: -2px;
+  font-size: 52px;
+  line-height: 1;
+  color: rgba(196, 181, 253, 0.22);
+  pointer-events: none;
+}
+
 .quote-text {
-  margin-top: 6px;
-  font-size: 14px;
-  line-height: 1.6;
-  opacity: 0.92;
+  position: relative;
+  padding-top: 14px;
+  font-size: 18px;
+  line-height: 1.7;
+  color: rgba(248, 250, 252, 0.96);
   font-style: italic;
+  letter-spacing: 0.01em;
+  text-wrap: balance;
+}
+
+.quote-footer {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quote-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(196, 181, 253, 0.44), transparent);
 }
 
 .quote-author {
-  margin-top: 4px;
-  font-size: 13px;
-  opacity: 0.7;
-  text-align: right;
+  flex: 0 0 auto;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(216, 180, 254, 0.82);
+}
+
+@media (max-width: 900px) {
+  .tip-shell {
+    gap: 12px;
+  }
+
+  .tip-orb {
+    width: 54px;
+    height: 54px;
+    flex-basis: 54px;
+  }
+
+  .quote-text {
+    font-size: 16px;
+  }
 }
 
 /* ================================
    Music Card
    بوكس الأغنية الحالية (Now Playing)
 ================================== */
-.music-main {
-  margin-top: 4px;
+.music-card {
+  background:
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.16), transparent 36%),
+    radial-gradient(circle at right, rgba(99, 102, 241, 0.14), transparent 42%),
+    rgba(15, 23, 42, 0.9);
 }
-body { outline: 6px solid red; }
 
+.music-shell {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.music-orb {
+  width: 74px;
+  height: 74px;
+  flex: 0 0 74px;
+  display: grid;
+  place-items: center;
+  border-radius: 24px;
+  background:
+    linear-gradient(145deg, rgba(59, 130, 246, 0.24), rgba(30, 41, 59, 0.62)),
+    rgba(15, 23, 42, 0.86);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 16px 36px rgba(15, 23, 42, 0.28);
+}
+
+.music-orb--live {
+  border-color: rgba(34, 211, 238, 0.26);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(34, 211, 238, 0.08),
+    0 18px 40px rgba(14, 165, 233, 0.22);
+}
+
+.music-wave {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 28px;
+}
+
+.music-wave span {
+  width: 7px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #67e8f9, #60a5fa);
+  box-shadow: 0 0 12px rgba(96, 165, 250, 0.28);
+  animation: musicWave 1.4s ease-in-out infinite;
+}
+
+.music-wave span:nth-child(1) {
+  height: 15px;
+}
+
+.music-wave span:nth-child(2) {
+  height: 26px;
+  animation-delay: 0.16s;
+}
+
+.music-wave span:nth-child(3) {
+  height: 19px;
+  animation-delay: 0.32s;
+}
+
+.music-main {
+  flex: 1;
+  min-width: 0;
+}
 
 .music-status {
-  font-size: 13px;
-  opacity: 0.75;
-  margin-bottom: 4px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.72);
+}
+
+.music-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.music-source {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.48);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(226, 232, 240, 0.78);
+}
+
+.music-source--spotify {
+  color: #86efac;
+  border-color: rgba(74, 222, 128, 0.24);
+}
+
+.music-source--youtube {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.26);
 }
 
 .music-track {
-  font-size: 16px;
+  margin-top: 8px;
+  font-size: 24px;
   font-weight: 600;
+  line-height: 1.2;
+  color: #f8fafc;
+  text-wrap: balance;
+}
+
+.music-artist-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
 }
 
 .music-artist {
-  font-size: 13px;
-  opacity: 0.8;
+  font-size: 14px;
+  color: rgba(226, 232, 240, 0.82);
+}
+
+.music-album {
+  flex: 0 0 auto;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.54);
+}
+
+.music-progress-block {
+  margin-top: 14px;
+}
+
+.music-progress-bar {
+  height: 9px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.music-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #22d3ee, #60a5fa, #818cf8);
+  box-shadow: 0 0 18px rgba(96, 165, 250, 0.26);
+  transition: width 0.5s ease;
+}
+
+.music-progress-meta {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.62);
+}
+
+@keyframes musicWave {
+  0%, 100% { transform: scaleY(0.8); opacity: 0.75; }
+  50%      { transform: scaleY(1.2); opacity: 1; }
+}
+
+@media (max-width: 900px) {
+  .music-shell {
+    align-items: flex-start;
+  }
+
+  .music-track {
+    font-size: 20px;
+  }
+
+  .music-artist-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 /* ================================
@@ -511,67 +1387,194 @@ body { outline: 6px solid red; }
    بوكس التقويم الشهري
 ================================== */
 .calendar-body {
-  margin-top: 6px;
+  margin-top: 8px;
   font-size: 12px;
 }
 
-.calendar-header-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 4px;
+.calendar-card {
+  background:
+    radial-gradient(circle at top left, rgba(96, 165, 250, 0.2), transparent 42%),
+    radial-gradient(circle at top right, rgba(129, 140, 248, 0.14), transparent 46%),
+    rgba(15, 23, 42, 0.9);
 }
 
 .calendar-month {
-  font-size: 14px;
+  font-size: 24px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  opacity: 0.85;
+  color: #eff6ff;
+  text-shadow: 0 0 18px rgba(96, 165, 250, 0.18);
+}
+
+.calendar-hero {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.calendar-hero-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.calendar-subtitle {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(226, 232, 240, 0.68);
+}
+
+.calendar-today-badge {
+  min-width: 112px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background:
+    linear-gradient(160deg, rgba(59, 130, 246, 0.2), rgba(15, 23, 42, 0.52)),
+    rgba(15, 23, 42, 0.76);
+  border: 1px solid rgba(147, 197, 253, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 14px 30px rgba(15, 23, 42, 0.38);
+  text-align: center;
+}
+
+.calendar-today-label {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.72);
+}
+
+.calendar-today-number {
+  margin-top: 6px;
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1;
+  color: #ffffff;
+}
+
+.calendar-today-meta {
+  margin-top: 6px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(219, 234, 254, 0.64);
+}
+
+.calendar-frame {
+  position: relative;
+  padding: 14px;
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(30, 41, 59, 0.72), rgba(15, 23, 42, 0.94)),
+    rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+.calendar-frame::before {
+  content: "";
+  position: absolute;
+  inset: -18% auto auto 12%;
+  width: 180px;
+  height: 180px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.16), transparent 68%);
+  pointer-events: none;
 }
 
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
+  gap: 8px;
+  position: relative;
+  z-index: 1;
 }
 
 .cal-cell {
   text-align: center;
-  padding: 2px 0;
-  opacity: 0.7;
+  min-height: 42px;
+  display: grid;
+  place-items: center;
 }
 
 .cal-header {
   font-size: 11px;
-  opacity: 0.8;
+  min-height: 26px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(191, 219, 254, 0.62);
 }
 
 .cal-day {
-  font-size: 12px;
-  border-radius: 999px;
+  position: relative;
+  font-size: 13px;
+  border-radius: 16px;
+  color: rgba(226, 232, 240, 0.88);
+  background: linear-gradient(
+    180deg,
+    rgba(30, 41, 59, 0.3),
+    rgba(15, 23, 42, 0.08)
+  );
+  border: 1px solid transparent;
+  transition:
+    transform 0.22s ease,
+    border-color 0.22s ease,
+    background 0.22s ease,
+    color 0.22s ease;
+}
+
+.cal-day:hover {
+  transform: translateY(-1px);
+  border-color: rgba(96, 165, 250, 0.24);
+  background: linear-gradient(
+    180deg,
+    rgba(51, 65, 85, 0.52),
+    rgba(30, 41, 59, 0.2)
+  );
+}
+
+.cal-day-number {
+  position: relative;
+  z-index: 1;
+}
+
+.cal-empty {
+  opacity: 0;
 }
 
 .cal-today {
-  background: rgba(59, 130, 246, 0.9);
   color: #fff;
-  font-weight: 600;
-  box-shadow: 0 0 12px rgba(59, 130, 246, 0.7);
+  font-weight: 700;
+  border-color: rgba(147, 197, 253, 0.42);
+  background:
+    radial-gradient(circle at top, rgba(96, 165, 250, 0.68), transparent 70%),
+    linear-gradient(135deg, rgba(59, 130, 246, 0.92), rgba(79, 70, 229, 0.78));
+  box-shadow:
+    0 0 0 1px rgba(191, 219, 254, 0.18),
+    0 12px 28px rgba(59, 130, 246, 0.34);
   opacity: 1;
 }
 
-/* ================================
-   Credits Text
-   نص الحقوق في الأسفل
-================================== */
-.credits {
-  position: fixed;
-  bottom: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 12px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  opacity: 0.6;
-  text-align: center;
+.cal-today::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  pointer-events: none;
+}
+
+@media (max-width: 900px) {
+  .calendar-hero {
+    flex-direction: column;
+  }
+
+  .calendar-today-badge {
+    min-width: 0;
+  }
 }

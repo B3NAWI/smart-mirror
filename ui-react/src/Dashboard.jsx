@@ -8,7 +8,13 @@ import TodayCard from "./components/TodayCard";
 import DailyTipCard from "./components/DailyTipCard";
 import AppsCard from "./components/AppsCard";
 
-
+const apiBaseUrl = (() => {
+  const configured = (import.meta.env.VITE_BACKEND_URL || "").trim();
+  if (configured) {
+    return configured.replace(/\/$/, "");
+  }
+  return "";
+})();
 
 const userName = "Hilal";
 
@@ -30,25 +36,27 @@ function pad2(n) {
 function getGreeting(now = new Date()) {
   const hour = now.getHours();
   let prefix = "Hello";
-  let message = "Welcome back to your smart mirror.";
 
   if (hour >= 5 && hour < 12) {
     prefix = "Good morning";
-    message = "Start your day with clarity and focus.";
   } else if (hour >= 12 && hour < 17) {
     prefix = "Good afternoon";
-    message = "Keep going, you're doing great.";
   } else if (hour >= 17 && hour < 22) {
     prefix = "Good evening";
-    message = "Time to slow down and recharge.";
   } else {
     prefix = "Good night";
-    message = "Rest well and be ready for tomorrow.";
   }
-  return { prefix, message };
+  return { prefix };
 }
 
 function weatherAdvice(tempC) {
+  if (typeof tempC !== "number" || Number.isNaN(tempC)) {
+    return {
+      avatar: "📡",
+      advice: "Waiting for a live weather reading for your location.",
+    };
+  }
+
   let avatar = "🧍‍♂️";
   let advice = "Mild weather. A light t-shirt is fine.";
 
@@ -70,6 +78,88 @@ function weatherAdvice(tempC) {
   }
 
   return { avatar, advice };
+}
+
+function buildWeatherFallback() {
+  return {
+    tempC: null,
+    desc: "Loading weather...",
+    loc: "Locating device...",
+    region: "Finding your city and region...",
+    locSource: "loading",
+    isDay: 1,
+  };
+}
+
+function buildNowPlayingFallback() {
+  return {
+    isPlaying: false,
+    title: "",
+    artist: "",
+    album: "",
+    source: "other",
+    progressSeconds: 0,
+    effectiveProgressSeconds: 0,
+    durationSeconds: null,
+    artworkUrl: "",
+    trackUrl: "",
+    updatedAt: null,
+  };
+}
+
+function normalizeNowPlayingPayload(payload) {
+  const progressSeconds = Number.isFinite(payload?.progress_seconds)
+    ? payload.progress_seconds
+    : Number.isFinite(payload?.progressSeconds)
+    ? payload.progressSeconds
+    : 0;
+
+  const effectiveProgressSeconds = Number.isFinite(payload?.effective_progress_seconds)
+    ? payload.effective_progress_seconds
+    : Number.isFinite(payload?.effectiveProgressSeconds)
+    ? payload.effectiveProgressSeconds
+    : progressSeconds;
+
+  const durationSeconds = Number.isFinite(payload?.duration_seconds)
+    ? payload.duration_seconds
+    : Number.isFinite(payload?.durationSeconds)
+    ? payload.durationSeconds
+    : null;
+
+  return {
+    isPlaying: Boolean(payload?.is_playing ?? payload?.isPlaying),
+    title: payload?.title || "",
+    artist: payload?.artist || "",
+    album: payload?.album || "",
+    source: String(payload?.source || "other").toLowerCase(),
+    progressSeconds,
+    effectiveProgressSeconds,
+    durationSeconds,
+    artworkUrl: payload?.artwork_url || payload?.artworkUrl || "",
+    trackUrl: payload?.track_url || payload?.trackUrl || "",
+    updatedAt: payload?.updated_at || payload?.updatedAt || null,
+  };
+}
+
+function formatLocationLines(location) {
+  const city = location?.city || location?.label || "Location unavailable";
+
+  const regionParts = [];
+  if (location?.region && location.region !== city) {
+    regionParts.push(location.region);
+  }
+  if (location?.country && location.country !== city) {
+    regionParts.push(location.country);
+  }
+
+  return {
+    city,
+    region: regionParts.join(", "),
+  };
+}
+
+function isLocalHost(hostname) {
+  return hostname === "localhost" || hostname === "127.0.0.1";
 }
 
 function buildCalendarModel(date = new Date()) {
@@ -99,7 +189,7 @@ function buildCalendarModel(date = new Date()) {
 export default function Dashboard() {
   const [clock, setClock] = useState("00:00");
   const [dateText, setDateText] = useState("Loading...");
-  const [{ prefix, message }, setGreeting] = useState(() => getGreeting());
+  const [{ prefix }, setGreeting] = useState(() => getGreeting());
 
   const [tip, setTip] = useState(() => {
     const today = new Date();
@@ -115,16 +205,11 @@ export default function Dashboard() {
   });
 
   const [weather, setWeather] = useState({
-    tempC: 22.5,
-    desc: "Clear",
-    loc: "Your City",
+    ...buildWeatherFallback(),
   });
+  const [weatherRefreshKey, setWeatherRefreshKey] = useState(0);
 
-  const [nowPlaying, setNowPlaying] = useState({
-    isPlaying: false,
-    title: "",
-    artist: "",
-  });
+  const [nowPlaying, setNowPlaying] = useState(() => buildNowPlayingFallback());
 
   const [calendar, setCalendar] = useState(() => buildCalendarModel());
 
@@ -155,8 +240,249 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    setWeather((w) => ({ ...w, tempC: sensorData.temperature }));
-  }, [sensorData.temperature]);
+    let cancelled = false;
+    let watchId = null;
+    let fallbackStarted = false;
+
+    const applyWeather = (payload) => {
+      if (cancelled || !payload) {
+        return;
+      }
+
+      const location = payload.location;
+      const currentWeather = payload.weather;
+      const locationLines = formatLocationLines(location);
+
+      setWeather((current) => ({
+        ...current,
+        tempC:
+          typeof currentWeather?.temperature_c === "number"
+            ? currentWeather.temperature_c
+            : null,
+        desc: currentWeather?.description || "Weather unavailable",
+        loc: locationLines.city,
+        region: locationLines.region,
+        locSource: location?.source || "unavailable",
+        isDay:
+          typeof currentWeather?.is_day === "number"
+            ? currentWeather.is_day
+            : current.isDay,
+      }));
+    };
+
+    const stopWatching = () => {
+      if (watchId !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+    };
+
+    const fetchWeather = async (query = "") => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/weather/current${query}`);
+        if (!response.ok) {
+          throw new Error("Weather request failed");
+        }
+        return await response.json();
+      } catch {
+        return null;
+      }
+    };
+
+    const loadFallbackWeather = async (sourceOverride = null) => {
+      if (fallbackStarted) {
+        return;
+      }
+      fallbackStarted = true;
+
+      const fallbackWeather = await fetchWeather();
+      if (fallbackWeather) {
+        if (sourceOverride && fallbackWeather.location) {
+          fallbackWeather.location.source = sourceOverride;
+        }
+        applyWeather(fallbackWeather);
+        return;
+      }
+
+      if (!cancelled) {
+        setWeather((current) => ({
+          ...current,
+          loc: "Location unavailable",
+          region: "",
+          locSource: "unavailable",
+          desc: "Weather unavailable",
+        }));
+      }
+    };
+
+    const fetchExactWeather = async (coords) => {
+      const query = `?lat=${coords.latitude}&lon=${coords.longitude}`;
+      const deviceWeather = await fetchWeather(query);
+
+      if (deviceWeather) {
+        applyWeather(deviceWeather);
+        stopWatching();
+        return true;
+      }
+
+      return false;
+    };
+
+    const loadDeviceWeather = async () => {
+      if (
+        typeof window !== "undefined" &&
+        !window.isSecureContext &&
+        !isLocalHost(window.location.hostname)
+      ) {
+        setWeather((current) => ({
+          ...current,
+          loc: "Open via localhost or HTTPS",
+          region: "",
+          locSource: "insecure_context",
+          desc: "Exact device location needs a secure page, using approximate weather.",
+        }));
+        loadFallbackWeather("ip_lookup");
+        return;
+      }
+
+      if (!navigator.geolocation) {
+        loadFallbackWeather("ip_lookup");
+        return;
+      }
+
+      try {
+        if (navigator.permissions?.query) {
+          const permission = await navigator.permissions.query({
+            name: "geolocation",
+          });
+
+          if (permission.state === "denied") {
+            setWeather((current) => ({
+              ...current,
+              loc: "Allow location access",
+              region: "",
+              locSource: "permission_denied",
+              desc: "Browser location is blocked, so exact city weather is unavailable.",
+            }));
+            loadFallbackWeather("ip_lookup");
+            return;
+          }
+        }
+      } catch {
+        // Continue even if the Permissions API is unavailable.
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        async ({ coords }) => {
+          const loaded = await fetchExactWeather(coords);
+          if (loaded) {
+            return;
+          }
+
+          loadFallbackWeather("ip_lookup");
+        },
+        () => {
+          setWeather((current) => ({
+            ...current,
+            loc: "Location permission needed",
+            region: "",
+            locSource: "permission_error",
+          }));
+          loadFallbackWeather("ip_lookup");
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 12000,
+          maximumAge: 5 * 60 * 1000,
+        }
+      );
+
+      watchId = navigator.geolocation.watchPosition(
+        async ({ coords }) => {
+          if (coords.accuracy && coords.accuracy > 800) {
+            return;
+          }
+
+          await fetchExactWeather(coords);
+        },
+        () => {
+          stopWatching();
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 60 * 1000,
+        }
+      );
+    };
+
+    loadDeviceWeather();
+
+    return () => {
+      cancelled = true;
+      stopWatching();
+    };
+  }, [weatherRefreshKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadNowPlaying = async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/now-playing`);
+        if (!response.ok) {
+          throw new Error("Now playing request failed");
+        }
+
+        const payload = await response.json();
+        if (!cancelled) {
+          setNowPlaying(normalizeNowPlayingPayload(payload));
+        }
+      } catch {
+        if (!cancelled) {
+          setNowPlaying((current) => ({
+            ...current,
+            isPlaying: false,
+          }));
+        }
+      }
+    };
+
+    loadNowPlaying();
+    const pollId = setInterval(loadNowPlaying, 15000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollId);
+    };
+  }, []);
+
+  useEffect(() => {
+    const tickId = setInterval(() => {
+      setNowPlaying((current) => {
+        if (!current.isPlaying) {
+          return current;
+        }
+
+        const duration = current.durationSeconds;
+        const nextProgress =
+          typeof duration === "number"
+            ? Math.min(current.effectiveProgressSeconds + 1, duration)
+            : current.effectiveProgressSeconds + 1;
+
+        if (nextProgress === current.effectiveProgressSeconds) {
+          return current;
+        }
+
+        return {
+          ...current,
+          effectiveProgressSeconds: nextProgress,
+        };
+      });
+    }, 1000);
+
+    return () => clearInterval(tickId);
+  }, []);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -184,11 +510,7 @@ export default function Dashboard() {
       setSensorData((prev) => ({ ...prev, ...json }));
     };
     window.setNowPlaying = (data) => {
-      setNowPlaying({
-        isPlaying: !!data?.isPlaying,
-        title: data?.title || "",
-        artist: data?.artist || "",
-      });
+      setNowPlaying(normalizeNowPlayingPayload(data));
     };
     return () => {
       delete window.setSensorDataFromJSON;
@@ -196,7 +518,10 @@ export default function Dashboard() {
     };
   }, []);
 
-  const { avatar, advice } = useMemo(() => weatherAdvice(weather.tempC), [weather.tempC]);
+  const { avatar, advice } = useMemo(
+    () => weatherAdvice(weather.tempC),
+    [weather.tempC]
+  );
 
   return (
     <div>
@@ -206,9 +531,6 @@ export default function Dashboard() {
         <div className="top-bar">
           <div className="halo-title">HALLO MIRROR</div>
           <div className="subtitle">Smart Ambient Dashboard</div>
-          <div className="project-tagline">
-            HALLO MIRROR · BY HILAL DALLASHI &amp; Baraa Amro
-          </div>
         </div>
 
         <div className="greeting-block">
@@ -216,15 +538,22 @@ export default function Dashboard() {
             <span id="greeting-prefix">{prefix}</span>{" "}
             <span className="greeting-highlight" id="greeting-name">{userName}</span>
           </div>
-          <div className="greeting-message" id="greeting-message">{message}</div>
         </div>
 
         <div className="middle">
           {/* ✅ LEFT COL – كل البوكسات */}
           <div className="left-col">
-            <WeatherCard weather={weather} avatar={avatar} advice={advice} />
+            <WeatherCard
+              weather={weather}
+              avatar={avatar}
+              advice={advice}
+              onRefreshLocation={() => {
+                setWeather(buildWeatherFallback());
+                setWeatherRefreshKey((value) => value + 1);
+              }}
+            />
             <SensorsCard sensorData={sensorData} />
-            <TodayCard message={message} />
+            <TodayCard />
             <DailyTipCard tip={tip} />
             <AppsCard />
             
@@ -238,8 +567,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-
-      <div className="credits">Made by Hilal Dallashi &amp; Baraa Amro</div>
     </div>
   );
 }
