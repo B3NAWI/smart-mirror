@@ -1,3 +1,5 @@
+import ModuleDisabledState from "./ModuleDisabledState";
+
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
@@ -28,17 +30,23 @@ function pressureNote(value) {
   return "Stable air";
 }
 
-export default function SensorsCard({ sensorData }) {
+export default function SensorsCard({
+  sensorData,
+  moduleVisibility,
+  refreshLabel = "",
+  refreshActive = false,
+}) {
   const metrics = [
     {
       key: "temp",
       label: "Temperature",
       short: "T",
-      value: `${sensorData.temperature.toFixed(1)}°C`,
+      value: `${sensorData.temperature.toFixed(1)} C`,
       note: temperatureNote(sensorData.temperature),
       level: clamp(((sensorData.temperature - 10) / 25) * 100, 8, 100),
       tone: "temp",
       valueId: "sensor-temp",
+      enabled: moduleVisibility?.temperatureEnabled ?? true,
     },
     {
       key: "humidity",
@@ -49,6 +57,7 @@ export default function SensorsCard({ sensorData }) {
       level: clamp(sensorData.humidity, 8, 100),
       tone: "humidity",
       valueId: "sensor-humidity",
+      enabled: moduleVisibility?.humidityEnabled ?? true,
     },
     {
       key: "pressure",
@@ -59,6 +68,7 @@ export default function SensorsCard({ sensorData }) {
       level: clamp(((sensorData.pressure - 980) / 45) * 100, 8, 100),
       tone: "pressure",
       valueId: "sensor-pressure",
+      enabled: moduleVisibility?.pressureEnabled ?? true,
     },
   ];
 
@@ -66,42 +76,54 @@ export default function SensorsCard({ sensorData }) {
     <div className="card">
       <div className="card-title-row">
         <div className="card-title">Sensors</div>
-        <div className="chip">ESP32 · BME280 · PIR · APDS9960</div>
+        <div className="chip">ESP32 - BME280 - PIR - APDS9960</div>
       </div>
 
       <div className="sensor-overview">
-        <div className="sensor-live-pill">
+        <div className={`sensor-live-pill ${refreshActive ? "sensor-live-pill--live" : ""}`}>
           <span className="sensor-live-dot"></span>
-          Ambient stream active
+          {refreshLabel ? `Mirror refreshed ${refreshLabel}` : "Ambient stream active"}
         </div>
         <div className="sensor-overview-text">
-          Smooth live readings from your mirror environment.
+          {refreshLabel
+            ? "The mobile app asked the mirror website to pull fresh dashboard data."
+            : "Smooth live readings from your mirror environment."}
         </div>
       </div>
 
       <div className="sensor-grid">
         {metrics.map((metric) => (
           <div
-            className={`sensor-panel sensor-panel--${metric.tone}`}
+            className={`sensor-panel sensor-panel--${metric.tone} ${metric.enabled ? "" : "sensor-panel--disabled"}`}
             key={metric.key}
           >
-            <div className="sensor-panel-head">
-              <div className="sensor-orb" aria-hidden="true">
-                {metric.short}
-              </div>
-              <div className="sensor-panel-meta">
-                <div className="sensor-panel-label">{metric.label}</div>
-                <div className="sensor-panel-note">{metric.note}</div>
-              </div>
-            </div>
+            {metric.enabled ? (
+              <>
+                <div className="sensor-panel-head">
+                  <div className="sensor-orb" aria-hidden="true">
+                    {metric.short}
+                  </div>
+                  <div className="sensor-panel-meta">
+                    <div className="sensor-panel-label">{metric.label}</div>
+                    <div className="sensor-panel-note">{metric.note}</div>
+                  </div>
+                </div>
 
-            <div className="sensor-panel-value" id={metric.valueId}>
-              {metric.value}
-            </div>
+                <div className="sensor-panel-value" id={metric.valueId}>
+                  {metric.value}
+                </div>
 
-            <div className="sensor-meter" aria-hidden="true">
-              <span style={{ width: `${metric.level}%` }}></span>
-            </div>
+                <div className="sensor-meter" aria-hidden="true">
+                  <span style={{ width: `${metric.level}%` }}></span>
+                </div>
+              </>
+            ) : (
+              <ModuleDisabledState
+                title={`${metric.label} hidden`}
+                description="This sensor slot was turned off in the mobile mirror settings."
+                compact
+              />
+            )}
           </div>
         ))}
       </div>

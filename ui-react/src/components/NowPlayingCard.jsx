@@ -1,3 +1,5 @@
+import ModuleDisabledState from "./ModuleDisabledState";
+
 function formatSource(source) {
   const sourceLabels = {
     spotify: "Spotify",
@@ -20,10 +22,24 @@ function formatSeconds(totalSeconds) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-export default function NowPlayingCard({ nowPlaying }) {
+export default function NowPlayingCard({ nowPlaying, mediaVisibility }) {
+  const spotifyEnabled = mediaVisibility?.spotifyEnabled ?? true;
+  const youtubeEnabled = mediaVisibility?.youtubeEnabled ?? true;
+  const currentSource = String(nowPlaying?.source || "other").toLowerCase();
+  const disabled =
+    (!spotifyEnabled && !youtubeEnabled) ||
+    (currentSource === "spotify" && !spotifyEnabled) ||
+    (currentSource === "youtube" && !youtubeEnabled);
+
   const hasTrack = Boolean(nowPlaying?.title);
   const isPlaying = Boolean(nowPlaying?.isPlaying && hasTrack);
-  const musicChip = isPlaying ? "Playing" : hasTrack ? "Paused" : "Idle";
+  const musicChip = disabled
+    ? "Off on mobile"
+    : isPlaying
+    ? "Playing"
+    : hasTrack
+    ? "Paused"
+    : "Idle";
   const musicStatus = isPlaying
     ? "Live playback"
     : hasTrack
@@ -40,53 +56,64 @@ export default function NowPlayingCard({ nowPlaying }) {
     duration && duration > 0 ? Math.min((progress / duration) * 100, 100) : 0;
 
   return (
-    <div className="card music-card">
+    <div className={`card music-card ${disabled ? "card--disabled" : ""}`}>
       <div className="card-title-row">
         <div className="card-title">Now Playing</div>
         <div className="chip">{musicChip}</div>
       </div>
 
-      <div className="music-shell">
-        <div className={`music-orb ${isPlaying ? "music-orb--live" : ""}`}>
-          <div className="music-wave">
-            <span></span>
-            <span></span>
-            <span></span>
+      {disabled ? (
+        <ModuleDisabledState
+          title="Media hidden"
+          description={
+            !spotifyEnabled && !youtubeEnabled
+              ? "Spotify and YouTube are both turned off in the mobile mirror settings."
+              : `${formatSource(currentSource)} is turned off in the mobile mirror settings.`
+          }
+        />
+      ) : (
+        <div className="music-shell">
+          <div className={`music-orb ${isPlaying ? "music-orb--live" : ""}`}>
+            <div className="music-wave">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+          </div>
+
+          <div className="music-main">
+            <div className="music-topline">
+              <div className="music-status" id="music-status">{musicStatus}</div>
+              <div className={`music-source music-source--${nowPlaying?.source || "other"}`}>
+                {formatSource(nowPlaying?.source)}
+              </div>
+            </div>
+
+            <div className="music-track" id="music-track">
+              {nowPlaying?.title || "No music playing right now"}
+            </div>
+
+            <div className="music-artist-row">
+              <div className="music-artist" id="music-artist">
+                {nowPlaying?.artist || "Connect Spotify, YouTube, or your phone player."}
+              </div>
+              {nowPlaying?.album ? (
+                <div className="music-album">{nowPlaying.album}</div>
+              ) : null}
+            </div>
+
+            <div className="music-progress-block">
+              <div className="music-progress-bar" aria-hidden="true">
+                <span style={{ width: `${progressPercent}%` }}></span>
+              </div>
+              <div className="music-progress-meta">
+                <span>{formatSeconds(progress)}</span>
+                <span>{duration ? formatSeconds(duration) : "Live"}</span>
+              </div>
+            </div>
           </div>
         </div>
-
-        <div className="music-main">
-          <div className="music-topline">
-            <div className="music-status" id="music-status">{musicStatus}</div>
-            <div className={`music-source music-source--${nowPlaying?.source || "other"}`}>
-              {formatSource(nowPlaying?.source)}
-            </div>
-          </div>
-
-          <div className="music-track" id="music-track">
-            {nowPlaying?.title || "No music playing right now"}
-          </div>
-
-          <div className="music-artist-row">
-            <div className="music-artist" id="music-artist">
-              {nowPlaying?.artist || "Connect Spotify, YouTube, or your phone player."}
-            </div>
-            {nowPlaying?.album ? (
-              <div className="music-album">{nowPlaying.album}</div>
-            ) : null}
-          </div>
-
-          <div className="music-progress-block">
-            <div className="music-progress-bar" aria-hidden="true">
-              <span style={{ width: `${progressPercent}%` }}></span>
-            </div>
-            <div className="music-progress-meta">
-              <span>{formatSeconds(progress)}</span>
-              <span>{duration ? formatSeconds(duration) : "Live"}</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

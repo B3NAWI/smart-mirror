@@ -46,6 +46,7 @@ class CalendarEventBase(BaseModel):
     start_time: datetime
     end_time: Optional[datetime] = None
     location: Optional[str] = None
+    completed: bool = False
     source: str = "mobile"
 
     @field_validator("title", mode="before")
@@ -91,6 +92,7 @@ class CalendarEventUpdate(BaseModel):
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     location: Optional[str] = None
+    completed: Optional[bool] = None
     source: Optional[str] = None
 
     @field_validator("title", mode="before")
@@ -351,3 +353,49 @@ class NowPlayingRead(NowPlayingBase):
     updated_at: datetime
     effective_progress_seconds: int = 0
     progress_percent: float = 0
+
+
+class MirrorModuleSettingsBase(BaseModel):
+    date_enabled: bool = True
+    reminders_enabled: bool = True
+    calendar_enabled: bool = True
+    temperature_enabled: bool = True
+    humidity_enabled: bool = True
+    pressure_enabled: bool = True
+    spotify_enabled: bool = True
+    youtube_enabled: bool = True
+
+
+class MirrorModuleSettingsUpdate(BaseModel):
+    date_enabled: Optional[bool] = None
+    reminders_enabled: Optional[bool] = None
+    calendar_enabled: Optional[bool] = None
+    temperature_enabled: Optional[bool] = None
+    humidity_enabled: Optional[bool] = None
+    pressure_enabled: Optional[bool] = None
+    spotify_enabled: Optional[bool] = None
+    youtube_enabled: Optional[bool] = None
+
+
+class MirrorModuleSettingsRead(MirrorModuleSettingsBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    weather_refresh_requested_at: Optional[datetime] = None
+    mirror_refresh_requested_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MirrorStateResponse(BaseModel):
+    temperature: Optional[float] = None
+    humidity: Optional[int] = None
+    pressure: Optional[int] = None
+    motion: bool = False
+    gesture: str = "none"
+    modules: MirrorModuleSettingsRead
+
+
+class MirrorRefreshRequest(BaseModel):
+    weather: bool = False
+    mirror_data: bool = False

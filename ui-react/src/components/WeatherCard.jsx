@@ -1,4 +1,13 @@
-export default function WeatherCard({ weather, avatar, advice, onRefreshLocation }) {
+export default function WeatherCard({
+  weather,
+  avatar,
+  advice,
+  onRefreshLocation,
+  weatherRefreshLabel = "",
+  weatherRefreshActive = false,
+  mirrorRefreshLabel = "",
+  mirrorRefreshActive = false,
+}) {
   const locationChip =
     weather.locSource === "device_geolocation"
       ? "Device GPS"
@@ -36,8 +45,8 @@ export default function WeatherCard({ weather, avatar, advice, onRefreshLocation
 
   const temperatureText =
     typeof weather.tempC === "number" && !Number.isNaN(weather.tempC)
-      ? `${weather.tempC.toFixed(1)}°C`
-      : "--°C";
+      ? `${weather.tempC.toFixed(1)} C`
+      : "-- C";
 
   return (
     <div className="card">
@@ -45,6 +54,25 @@ export default function WeatherCard({ weather, avatar, advice, onRefreshLocation
         <div className="card-title">Weather</div>
         <div className="chip">{locationChip}</div>
       </div>
+
+      {(weatherRefreshLabel || mirrorRefreshLabel) && (
+        <div className="weather-sync-row">
+          {weatherRefreshLabel ? (
+            <div
+              className={`sync-pill ${weatherRefreshActive ? "sync-pill--live" : ""}`}
+            >
+              Mobile weather refreshed {weatherRefreshLabel}
+            </div>
+          ) : null}
+          {mirrorRefreshLabel ? (
+            <div
+              className={`sync-pill ${mirrorRefreshActive ? "sync-pill--live" : ""}`}
+            >
+              Mirror refresh {mirrorRefreshLabel}
+            </div>
+          ) : null}
+        </div>
+      )}
 
       <div className="weather-row">
         <div className="weather-main">

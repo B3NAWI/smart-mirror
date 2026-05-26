@@ -15,15 +15,24 @@ from .todo_routes import get_todos_for_date
 router = APIRouter(tags=["daily-plan"])
 
 
+def _is_planner_block(event) -> bool:
+    source = getattr(event, "source", "")
+    if source == "planner_block":
+        return True
+    return source == "mobile" and bool(getattr(event, "description", None))
+
+
 def _select_next_event(target_date: date_type, events):
     if not events:
         return None
 
     if target_date != date_type.today():
-        return events[0]
+        return next((event for event in events if not (_is_planner_block(event) and event.completed)), events[0])
 
     now = datetime.now()
     for event in events:
+        if _is_planner_block(event) and event.completed:
+            continue
         if event.start_time >= now:
             return event
         if event.end_time and event.end_time >= now:
@@ -47,13 +56,15 @@ def get_daily_plan(
     calendar_events = get_events_for_date(db, target_date)
     todos = get_todos_for_date(db, target_date)
     incomplete_todos = [todo for todo in todos if not todo.completed]
+    planner_blocks = [event for event in calendar_events if _is_planner_block(event)]
+    incomplete_planner_blocks = [event for event in planner_blocks if not event.completed]
 
     return DailyPlanResponse(
         date=target_date,
         calendar_events=calendar_events,
         todos=todos,
-        completed_todos_count=sum(1 for todo in todos if todo.completed),
-        remaining_todos_count=len(incomplete_todos),
+        completed_todos_count=sum(1 for todo in todos if todo.completed) + sum(1 for event in planner_blocks if event.completed),
+        remaining_todos_count=len(incomplete_todos) + len(incomplete_planner_blocks),
         high_priority_count=sum(
             1 for todo in incomplete_todos if todo.priority == "high"
         ),
