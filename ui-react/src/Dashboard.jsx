@@ -6,7 +6,7 @@ import SensorsCard from "./components/SensorsCard";
 import WeatherCard from "./components/WeatherCard";
 import TodayCard from "./components/TodayCard";
 import DailyTipCard from "./components/DailyTipCard";
-import AppsCard from "./components/AppsCard";
+import useMirrorGestureCamera from "./hooks/useMirrorGestureCamera";
 
 const apiBaseUrl = (() => {
   const configured = (import.meta.env.VITE_BACKEND_URL || "").trim();
@@ -16,7 +16,10 @@ const apiBaseUrl = (() => {
   return "";
 })();
 
-const userName = "Hilal";
+const runtimeApiKey = (() => {
+  const configured = (import.meta.env.VITE_BACKEND_API_KEY || "").trim();
+  return configured || "halo-local-dev-key";
+})();
 
 const dailyTips = [
   { text: "Small consistent steps beat big occasional efforts.", source: "Daily Focus" },
@@ -84,10 +87,19 @@ function buildWeatherFallback() {
   return {
     tempC: null,
     desc: "Loading weather...",
-    loc: "Locating device...",
-    region: "Finding your city and region...",
+    loc: "Waiting for the phone app...",
+    region: "Phone weather will appear here after sync.",
     locSource: "loading",
     isDay: 1,
+    updatedAt: "",
+  };
+}
+
+function buildProfileFallback() {
+  return {
+    accountId: "",
+    accountName: "Friend",
+    updatedAt: "",
   };
 }
 
@@ -103,8 +115,49 @@ function buildNowPlayingFallback() {
     durationSeconds: null,
     artworkUrl: "",
     trackUrl: "",
+    videoStreamUrl: "",
+    videoThumbnailUrl: "",
+    playbackNote: "",
     updatedAt: null,
   };
+}
+
+const MEDIA_HISTORY_STORAGE_KEY = "halo.mirror.mediaHistory.v1";
+
+function loadStoredMediaHistory() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(MEDIA_HISTORY_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item) => normalizeNowPlayingPayload(item))
+      .filter((item) => item.title && canMirrorPlayFromGesture(item));
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredMediaHistory(items) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(MEDIA_HISTORY_STORAGE_KEY, JSON.stringify(items.slice(-20)));
+  } catch {
+    // Best-effort only.
+  }
 }
 
 function normalizeNowPlayingPayload(payload) {
@@ -137,7 +190,52 @@ function normalizeNowPlayingPayload(payload) {
     durationSeconds,
     artworkUrl: payload?.artwork_url || payload?.artworkUrl || "",
     trackUrl: payload?.track_url || payload?.trackUrl || "",
+    videoStreamUrl: payload?.video_stream_url || payload?.videoStreamUrl || "",
+    videoThumbnailUrl: payload?.video_thumbnail_url || payload?.videoThumbnailUrl || "",
+    playbackNote: payload?.playback_note || payload?.playbackNote || "",
     updatedAt: payload?.updated_at || payload?.updatedAt || null,
+  };
+}
+
+function buildNowPlayingKey(payload) {
+  const source = String(payload?.source || "other").toLowerCase();
+  const title = String(payload?.title || "").trim().toLowerCase();
+  const artist = String(payload?.artist || "").trim().toLowerCase();
+  const trackUrl = String(payload?.trackUrl || payload?.track_url || "").trim();
+
+  return [source, title, artist, trackUrl].join("::");
+}
+
+function canMirrorPlayFromGesture(payload) {
+  const source = String(payload?.source || "").toLowerCase();
+  if (source === "youtube") {
+    return Boolean(payload?.trackUrl || payload?.track_url || payload?.videoStreamUrl);
+  }
+
+  if (source === "spotify") {
+    return Boolean(payload?.trackUrl || payload?.track_url);
+  }
+
+  return false;
+}
+
+function toNowPlayingApiPayload(payload) {
+  return {
+    title: payload?.title || null,
+    artist: payload?.artist || null,
+    album: payload?.album || null,
+    source: payload?.source || "other",
+    is_playing: Boolean(payload?.isPlaying),
+    progress_seconds: Number.isFinite(payload?.effectiveProgressSeconds)
+      ? Math.max(0, Math.round(payload.effectiveProgressSeconds))
+      : Number.isFinite(payload?.progressSeconds)
+      ? Math.max(0, Math.round(payload.progressSeconds))
+      : 0,
+    duration_seconds: Number.isFinite(payload?.durationSeconds)
+      ? Math.max(1, Math.round(payload.durationSeconds))
+      : null,
+    artwork_url: payload?.artworkUrl || null,
+    track_url: payload?.trackUrl || null,
   };
 }
 
@@ -156,10 +254,6 @@ function formatLocationLines(location) {
     city,
     region: regionParts.join(", "),
   };
-}
-
-function isLocalHost(hostname) {
-  return hostname === "localhost" || hostname === "127.0.0.1";
 }
 
 function formatLocalIsoDate(value) {
@@ -300,6 +394,7 @@ function buildCalendarModel(date = new Date(), itemsByDate = {}, selectedDate = 
 }
 
 const defaultModuleVisibility = Object.freeze({
+  weatherEnabled: true,
   dateEnabled: true,
   remindersEnabled: true,
   calendarEnabled: true,
@@ -308,6 +403,7 @@ const defaultModuleVisibility = Object.freeze({
   pressureEnabled: true,
   spotifyEnabled: true,
   youtubeEnabled: true,
+  gestureCameraEnabled: false,
 });
 
 function readBooleanSetting(source, snakeKey, camelKey) {
@@ -324,6 +420,7 @@ function normalizeModuleVisibilityPayload(payload) {
   const source = payload?.modules || payload?.module_visibility || payload?.visibility || {};
 
   return {
+    weatherEnabled: readBooleanSetting(source, "weather_enabled", "weatherEnabled"),
     dateEnabled: readBooleanSetting(source, "date_enabled", "dateEnabled"),
     remindersEnabled: readBooleanSetting(source, "reminders_enabled", "remindersEnabled"),
     calendarEnabled: readBooleanSetting(source, "calendar_enabled", "calendarEnabled"),
@@ -332,6 +429,11 @@ function normalizeModuleVisibilityPayload(payload) {
     pressureEnabled: readBooleanSetting(source, "pressure_enabled", "pressureEnabled"),
     spotifyEnabled: readBooleanSetting(source, "spotify_enabled", "spotifyEnabled"),
     youtubeEnabled: readBooleanSetting(source, "youtube_enabled", "youtubeEnabled"),
+    gestureCameraEnabled: readBooleanSetting(
+      source,
+      "gesture_camera_enabled",
+      "gestureCameraEnabled"
+    ),
   };
 }
 
@@ -366,7 +468,142 @@ function normalizeSensorStatePayload(payload, fallback) {
         : typeof source?.last_gesture === "string"
         ? source.last_gesture
         : fallback.gesture,
+    updatedAt:
+      typeof source?.mirror_state_updated_at === "string"
+        ? source.mirror_state_updated_at
+        : typeof source?.mirrorStateUpdatedAt === "string"
+        ? source.mirrorStateUpdatedAt
+        : fallback.updatedAt,
   };
+}
+
+function normalizeWeatherStatePayload(payload, fallback) {
+  const source = payload?.state || payload || {};
+  const nextTemp =
+    readNumericValue(source, ["weather_temperature_c", "weatherTemperatureC"]) ?? fallback.tempC;
+  const nextDesc =
+    typeof source?.weather_description === "string"
+      ? source.weather_description
+      : typeof source?.weatherDescription === "string"
+      ? source.weatherDescription
+      : fallback.desc;
+  const nextLoc =
+    typeof source?.weather_location_label === "string"
+      ? source.weather_location_label
+      : typeof source?.weatherLocationLabel === "string"
+      ? source.weatherLocationLabel
+      : fallback.loc;
+  const nextRegion =
+    typeof source?.weather_region === "string"
+      ? source.weather_region
+      : typeof source?.weatherRegion === "string"
+      ? source.weatherRegion
+      : fallback.region;
+  const nextSource =
+    typeof source?.weather_source === "string"
+      ? source.weather_source
+      : typeof source?.weatherSource === "string"
+      ? source.weatherSource
+      : fallback.locSource;
+  const nextIsDay =
+    readNumericValue(source, ["weather_is_day", "weatherIsDay"]) ?? fallback.isDay;
+  const nextUpdatedAt =
+    typeof source?.weather_updated_at === "string"
+      ? source.weather_updated_at
+      : typeof source?.weatherUpdatedAt === "string"
+      ? source.weatherUpdatedAt
+      : fallback.updatedAt;
+
+  return {
+    tempC: nextTemp,
+    desc: nextDesc || fallback.desc,
+    loc: nextLoc || fallback.loc,
+    region: nextRegion || "",
+    locSource: nextSource || fallback.locSource,
+    isDay: nextIsDay,
+    updatedAt: nextUpdatedAt || fallback.updatedAt,
+  };
+}
+
+function hasSyncedWeather(payload) {
+  const source = payload?.state || payload || {};
+  return Boolean(
+    source?.weather_updated_at ||
+      source?.weatherUpdatedAt ||
+      source?.weather_location_label ||
+      source?.weatherLocationLabel
+  );
+}
+
+function normalizeProfilePayload(payload, fallback) {
+  const source = payload?.state || payload || {};
+  return {
+    accountId:
+      typeof source?.active_account_id === "string"
+        ? source.active_account_id
+        : typeof source?.activeAccountId === "string"
+        ? source.activeAccountId
+        : fallback.accountId,
+    accountName:
+      typeof source?.active_account_name === "string" && source.active_account_name.trim()
+        ? source.active_account_name.trim()
+        : typeof source?.activeAccountName === "string" && source.activeAccountName.trim()
+        ? source.activeAccountName.trim()
+        : fallback.accountName,
+    updatedAt:
+      typeof source?.profile_updated_at === "string"
+        ? source.profile_updated_at
+        : typeof source?.profileUpdatedAt === "string"
+        ? source.profileUpdatedAt
+        : fallback.updatedAt,
+  };
+}
+
+function normalizeFallbackWeatherPayload(payload) {
+  const location = payload?.location;
+  const currentWeather = payload?.weather;
+  const locationLines = formatLocationLines(location);
+
+  return {
+    tempC:
+      typeof currentWeather?.temperature_c === "number"
+        ? currentWeather.temperature_c
+        : null,
+    desc: currentWeather?.description || "Weather unavailable",
+    loc: locationLines.city,
+    region: locationLines.region,
+    locSource: location?.source || "unavailable",
+    isDay:
+      typeof currentWeather?.is_day === "number"
+        ? currentWeather.is_day
+        : 1,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function normalizePlannerPlans(payload) {
+  const items = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.plans)
+    ? payload.plans
+    : [];
+
+  return items.map((plan) => ({
+    id: String(plan?.id || ""),
+    title: String(plan?.title || "Untitled plan"),
+    date: String(plan?.date || ""),
+    segments: Array.isArray(plan?.segments)
+      ? plan.segments.map((segment) => ({
+          id: String(segment?.id || ""),
+          title: String(segment?.title || "Untitled block"),
+          startTime: String(segment?.start_time || segment?.startTime || ""),
+          endTime: String(segment?.end_time || segment?.endTime || ""),
+          alarmAtStart: Boolean(segment?.alarm_at_start ?? segment?.alarmAtStart),
+          alarmAtEnd: Boolean(segment?.alarm_at_end ?? segment?.alarmAtEnd),
+          isDone: Boolean(segment?.is_done ?? segment?.isDone),
+        }))
+      : [],
+  }));
 }
 
 function buildRefreshSignalsFallback() {
@@ -518,6 +755,7 @@ export default function Dashboard() {
   const [clock, setClock] = useState("00:00");
   const [dateText, setDateText] = useState("Loading...");
   const [{ prefix }, setGreeting] = useState(() => getGreeting());
+  const [profile, setProfile] = useState(() => buildProfileFallback());
 
   const [tip, setTip] = useState(() => {
     const today = new Date();
@@ -530,6 +768,7 @@ export default function Dashboard() {
     pressure: 1000,
     motion: false,
     gesture: "none",
+    updatedAt: "",
   });
   const [moduleVisibility, setModuleVisibility] = useState(() => ({
     ...defaultModuleVisibility,
@@ -541,22 +780,210 @@ export default function Dashboard() {
   const [weather, setWeather] = useState({
     ...buildWeatherFallback(),
   });
+  const [plannerPlans, setPlannerPlans] = useState([]);
+  const [mirrorAlarm, setMirrorAlarm] = useState(null);
   const [weatherRefreshKey, setWeatherRefreshKey] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   const weatherRefreshSeenRef = useRef("");
   const dashboardRefreshSeenRef = useRef("");
+  const hasSyncedWeatherRef = useRef(false);
+  const triggeredAlarmKeysRef = useRef(new Set());
 
   const [nowPlaying, setNowPlaying] = useState(() => buildNowPlayingFallback());
+  const [gestureCommand, setGestureCommand] = useState(null);
   const [todayPlan, setTodayPlan] = useState(() => buildTodayPlanFallback());
   const [calendarMonthDate] = useState(() => new Date());
   const [calendarItemsByDate, setCalendarItemsByDate] = useState(() => ({}));
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(() =>
     formatLocalIsoDate(new Date())
   );
+  const initialMediaHistory = useMemo(() => loadStoredMediaHistory(), []);
+  const mediaHistoryRef = useRef(initialMediaHistory);
+  const mediaHistoryIndexRef = useRef(Math.max(initialMediaHistory.length - 1, -1));
+  const lastNowPlayingKeyRef = useRef("");
   const calendar = useMemo(
     () => buildCalendarModel(calendarMonthDate, calendarItemsByDate, selectedCalendarDate),
     [calendarItemsByDate, calendarMonthDate, selectedCalendarDate]
   );
+
+  const publishRuntimeState = async (updates) => {
+    try {
+      await fetch(`${apiBaseUrl}/api/state/runtime`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": runtimeApiKey,
+        },
+        body: JSON.stringify(updates),
+      });
+    } catch {
+      // Keep the mirror UI responsive even if the backend write fails.
+    }
+  };
+
+  const publishNowPlayingState = async (payload) => {
+    try {
+      await fetch(`${apiBaseUrl}/api/now-playing`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": runtimeApiKey,
+        },
+        body: JSON.stringify(toNowPlayingApiPayload(payload)),
+      });
+    } catch {
+      // Keep local playback responsive if the mirror state sync misses one update.
+    }
+  };
+
+  const rememberNowPlaying = (payload, options = {}) => {
+    const { pushHistory = true } = options;
+    const normalized = normalizeNowPlayingPayload(payload);
+    const itemKey = buildNowPlayingKey(normalized);
+
+    setNowPlaying(normalized);
+
+    if (!normalized.title) {
+      lastNowPlayingKeyRef.current = "";
+      return normalized;
+    }
+
+    if (!pushHistory || !canMirrorPlayFromGesture(normalized)) {
+      lastNowPlayingKeyRef.current = itemKey;
+      return normalized;
+    }
+
+    const existingIndex = mediaHistoryRef.current.findIndex(
+      (entry) => buildNowPlayingKey(entry) === itemKey
+    );
+
+    if (existingIndex >= 0) {
+      mediaHistoryRef.current[existingIndex] = normalized;
+      mediaHistoryIndexRef.current = existingIndex;
+      saveStoredMediaHistory(mediaHistoryRef.current);
+      lastNowPlayingKeyRef.current = itemKey;
+      return normalized;
+    }
+
+    const nextHistory = [...mediaHistoryRef.current, normalized].slice(-20);
+    mediaHistoryRef.current = nextHistory;
+    mediaHistoryIndexRef.current = nextHistory.length - 1;
+    saveStoredMediaHistory(nextHistory);
+    lastNowPlayingKeyRef.current = itemKey;
+    return normalized;
+  };
+
+  const queueGestureCommand = (action, extra = {}) => {
+    setGestureCommand({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      action,
+      ...extra,
+    });
+  };
+
+  const handleHorizontalGesture = async (gesture) => {
+    const source = String(nowPlaying?.source || "").toLowerCase();
+    if (source === "spotify") {
+      return;
+    }
+
+    const history = mediaHistoryRef.current.filter(
+      (entry) => String(entry?.source || "").toLowerCase() === source
+    );
+    const currentKey = buildNowPlayingKey(nowPlaying);
+    let currentIndex = history.findIndex((entry) => buildNowPlayingKey(entry) === currentKey);
+
+    if (currentIndex < 0) {
+      currentIndex = history.length - 1;
+    }
+
+    const targetIndex = gesture === "left" ? currentIndex - 1 : currentIndex + 1;
+    const targetItem = history[targetIndex];
+
+    if (!targetItem) {
+      if (
+        source !== "youtube" ||
+        gesture !== "right" ||
+        !canMirrorPlayFromGesture(nowPlaying)
+      ) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/now-playing/next`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-API-Key": runtimeApiKey,
+          },
+          body: JSON.stringify({
+            exclude_track_urls: history
+              .map((entry) => entry?.trackUrl || entry?.track_url || "")
+              .filter(Boolean),
+          }),
+        });
+        if (!response.ok) {
+          throw new Error("Next YouTube video request failed");
+        }
+
+        const payload = await response.json();
+        const nextItem = rememberNowPlaying(payload);
+        queueGestureCommand("history_next", {
+          title: nextItem.title || "",
+          trackUrl: nextItem.trackUrl || "",
+          source: nextItem.source || "",
+        });
+      } catch {
+        // If no recommendation is available, leave the current video playing.
+      }
+      return;
+    }
+
+    mediaHistoryIndexRef.current = targetIndex;
+    lastNowPlayingKeyRef.current = buildNowPlayingKey(targetItem);
+    setNowPlaying(targetItem);
+    saveStoredMediaHistory(mediaHistoryRef.current);
+    queueGestureCommand(
+      gesture === "left" ? "history_previous" : "history_next",
+      {
+        title: targetItem.title || "",
+        trackUrl: targetItem.trackUrl || "",
+        source: targetItem.source || "",
+      }
+    );
+    await publishNowPlayingState(targetItem);
+  };
+
+  const triggerGestureAction = (gesture) => {
+    if (gesture === "up") {
+      queueGestureCommand("volume_up");
+      return;
+    }
+
+    if (gesture === "down") {
+      queueGestureCommand("volume_down");
+      return;
+    }
+
+    if (gesture === "left" || gesture === "right") {
+      void handleHorizontalGesture(gesture);
+    }
+  };
+
+  const handleGestureDetected = (gesture) => {
+    setSensorData((current) => ({
+      ...current,
+      gesture,
+    }));
+    window.dispatchEvent(new CustomEvent("halo:gesture", { detail: { gesture } }));
+    publishRuntimeState({ gesture });
+    triggerGestureAction(gesture);
+  };
+
+  const gestureCamera = useMirrorGestureCamera({
+    enabled: moduleVisibility.gestureCameraEnabled,
+    onGestureDetected: handleGestureDetected,
+  });
 
   useEffect(() => {
     const tick = () => {
@@ -597,8 +1024,13 @@ export default function Dashboard() {
         if (!cancelled) {
           setSensorData((current) => normalizeSensorStatePayload(payload, current));
           setModuleVisibility(normalizeModuleVisibilityPayload(payload));
+          setProfile((current) => normalizeProfilePayload(payload, current));
           const nextSignals = normalizeRefreshSignalsPayload(payload);
           setRefreshSignals(nextSignals);
+          hasSyncedWeatherRef.current = hasSyncedWeather(payload);
+          if (hasSyncedWeatherRef.current) {
+            setWeather((current) => normalizeWeatherStatePayload(payload, current));
+          }
 
           if (
             nextSignals.weatherRequestedAt &&
@@ -634,45 +1066,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     let cancelled = false;
-    let watchId = null;
-    let fallbackStarted = false;
 
-    const applyWeather = (payload) => {
-      if (cancelled || !payload) {
-        return;
-      }
-
-      const location = payload.location;
-      const currentWeather = payload.weather;
-      const locationLines = formatLocationLines(location);
-
-      setWeather((current) => ({
-        ...current,
-        tempC:
-          typeof currentWeather?.temperature_c === "number"
-            ? currentWeather.temperature_c
-            : null,
-        desc: currentWeather?.description || "Weather unavailable",
-        loc: locationLines.city,
-        region: locationLines.region,
-        locSource: location?.source || "unavailable",
-        isDay:
-          typeof currentWeather?.is_day === "number"
-            ? currentWeather.is_day
-            : current.isDay,
-      }));
-    };
-
-    const stopWatching = () => {
-      if (watchId !== null && navigator.geolocation) {
-        navigator.geolocation.clearWatch(watchId);
-        watchId = null;
-      }
-    };
-
-    const fetchWeather = async (query = "") => {
+    const fetchWeather = async () => {
       try {
-        const response = await fetch(`${apiBaseUrl}/api/weather/current${query}`);
+        const response = await fetch(`${apiBaseUrl}/api/weather/current`);
         if (!response.ok) {
           throw new Error("Weather request failed");
         }
@@ -682,138 +1079,21 @@ export default function Dashboard() {
       }
     };
 
-    const loadFallbackWeather = async (sourceOverride = null) => {
-      if (fallbackStarted) {
+    const loadFallbackWeather = async () => {
+      if (hasSyncedWeatherRef.current) {
         return;
       }
-      fallbackStarted = true;
-
       const fallbackWeather = await fetchWeather();
-      if (fallbackWeather) {
-        if (sourceOverride && fallbackWeather.location) {
-          fallbackWeather.location.source = sourceOverride;
-        }
-        applyWeather(fallbackWeather);
+      if (cancelled || !fallbackWeather || hasSyncedWeatherRef.current) {
         return;
       }
-
-      if (!cancelled) {
-        setWeather((current) => ({
-          ...current,
-          loc: "Location unavailable",
-          region: "",
-          locSource: "unavailable",
-          desc: "Weather unavailable",
-        }));
-      }
+      setWeather(normalizeFallbackWeatherPayload(fallbackWeather));
     };
 
-    const fetchExactWeather = async (coords) => {
-      const query = `?lat=${coords.latitude}&lon=${coords.longitude}`;
-      const deviceWeather = await fetchWeather(query);
-
-      if (deviceWeather) {
-        applyWeather(deviceWeather);
-        stopWatching();
-        return true;
-      }
-
-      return false;
-    };
-
-    const loadDeviceWeather = async () => {
-      if (
-        typeof window !== "undefined" &&
-        !window.isSecureContext &&
-        !isLocalHost(window.location.hostname)
-      ) {
-        setWeather((current) => ({
-          ...current,
-          loc: "Open via localhost or HTTPS",
-          region: "",
-          locSource: "insecure_context",
-          desc: "Exact device location needs a secure page, using approximate weather.",
-        }));
-        loadFallbackWeather("ip_lookup");
-        return;
-      }
-
-      if (!navigator.geolocation) {
-        loadFallbackWeather("ip_lookup");
-        return;
-      }
-
-      try {
-        if (navigator.permissions?.query) {
-          const permission = await navigator.permissions.query({
-            name: "geolocation",
-          });
-
-          if (permission.state === "denied") {
-            setWeather((current) => ({
-              ...current,
-              loc: "Allow location access",
-              region: "",
-              locSource: "permission_denied",
-              desc: "Browser location is blocked, so exact city weather is unavailable.",
-            }));
-            loadFallbackWeather("ip_lookup");
-            return;
-          }
-        }
-      } catch {
-        // Continue even if the Permissions API is unavailable.
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        async ({ coords }) => {
-          const loaded = await fetchExactWeather(coords);
-          if (loaded) {
-            return;
-          }
-
-          loadFallbackWeather("ip_lookup");
-        },
-        () => {
-          setWeather((current) => ({
-            ...current,
-            loc: "Location permission needed",
-            region: "",
-            locSource: "permission_error",
-          }));
-          loadFallbackWeather("ip_lookup");
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 12000,
-          maximumAge: 5 * 60 * 1000,
-        }
-      );
-
-      watchId = navigator.geolocation.watchPosition(
-        async ({ coords }) => {
-          if (coords.accuracy && coords.accuracy > 800) {
-            return;
-          }
-
-          await fetchExactWeather(coords);
-        },
-        () => {
-          stopWatching();
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 60 * 1000,
-        }
-      );
-    };
-
-    loadDeviceWeather();
+    loadFallbackWeather();
 
     return () => {
       cancelled = true;
-      stopWatching();
     };
   }, [weatherRefreshKey]);
 
@@ -891,6 +1171,127 @@ export default function Dashboard() {
   useEffect(() => {
     let cancelled = false;
 
+    const loadPlannerPlans = async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/planner/plans`);
+        if (!response.ok) {
+          throw new Error("Planner request failed");
+        }
+        const payload = await response.json();
+        if (!cancelled) {
+          setPlannerPlans(normalizePlannerPlans(payload));
+        }
+      } catch {
+        if (!cancelled) {
+          setPlannerPlans((current) => current);
+        }
+      }
+    };
+
+    loadPlannerPlans();
+    const pollId = setInterval(loadPlannerPlans, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollId);
+    };
+  }, [dashboardRefreshKey]);
+
+  useEffect(() => {
+    const speakAlarm = (message) => {
+      try {
+        if (typeof window !== "undefined" && "speechSynthesis" in window) {
+          const utterance = new SpeechSynthesisUtterance(message);
+          utterance.rate = 1;
+          utterance.pitch = 1;
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(utterance);
+        }
+      } catch {
+        // Mirror alarm voice is best-effort only.
+      }
+    };
+
+    const playBeep = () => {
+      try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.type = "square";
+        oscillator.frequency.value = 880;
+        gainNode.gain.value = 0.05;
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.start();
+        window.setTimeout(() => {
+          oscillator.stop();
+          audioContext.close().catch(() => {});
+        }, 450);
+      } catch {
+        // Best-effort only.
+      }
+    };
+
+    const evaluateAlarms = () => {
+      const now = new Date();
+      const todayKey = formatLocalIsoDate(now);
+      const currentMinuteKey = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+
+      plannerPlans.forEach((plan) => {
+        if (plan.date !== todayKey) {
+          return;
+        }
+
+        plan.segments.forEach((segment) => {
+          if (segment.isDone) {
+            return;
+          }
+
+          const maybeTrigger = (alarmType, timeValue, label) => {
+            if (!timeValue || timeValue.slice(0, 5) !== currentMinuteKey) {
+              return;
+            }
+            const alarmKey = `${todayKey}:${plan.id}:${segment.id}:${alarmType}:${currentMinuteKey}`;
+            if (triggeredAlarmKeysRef.current.has(alarmKey)) {
+              return;
+            }
+            triggeredAlarmKeysRef.current.add(alarmKey);
+            const message = `${segment.title}. ${label}.`;
+            setMirrorAlarm({
+              id: alarmKey,
+              title: segment.title,
+              detail: `${plan.title} - ${label}`,
+            });
+            playBeep();
+            speakAlarm(message);
+          };
+
+          if (segment.alarmAtStart) {
+            maybeTrigger("start", segment.startTime, "Start now");
+          }
+          if (segment.alarmAtEnd) {
+            maybeTrigger("end", segment.endTime, "Ends now");
+          }
+        });
+      });
+    };
+
+    evaluateAlarms();
+    const intervalId = setInterval(evaluateAlarms, 1000);
+    return () => clearInterval(intervalId);
+  }, [plannerPlans]);
+
+  useEffect(() => {
+    if (!mirrorAlarm) {
+      return undefined;
+    }
+    const timeoutId = setTimeout(() => setMirrorAlarm(null), 45000);
+    return () => clearTimeout(timeoutId);
+  }, [mirrorAlarm]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     const loadNowPlaying = async () => {
       try {
         const response = await fetch(`${apiBaseUrl}/api/now-playing`);
@@ -900,7 +1301,7 @@ export default function Dashboard() {
 
         const payload = await response.json();
         if (!cancelled) {
-          setNowPlaying(normalizeNowPlayingPayload(payload));
+          rememberNowPlaying(payload);
         }
       } catch {
         if (!cancelled) {
@@ -913,7 +1314,7 @@ export default function Dashboard() {
     };
 
     loadNowPlaying();
-    const pollId = setInterval(loadNowPlaying, 15000);
+    const pollId = setInterval(loadNowPlaying, 4000);
 
     return () => {
       cancelled = true;
@@ -958,7 +1359,7 @@ export default function Dashboard() {
       }
     };
     window.setNowPlaying = (data) => {
-      setNowPlaying(normalizeNowPlayingPayload(data));
+      rememberNowPlaying(data);
     };
     return () => {
       delete window.setSensorDataFromJSON;
@@ -970,10 +1371,13 @@ export default function Dashboard() {
     () => weatherAdvice(weather.tempC),
     [weather.tempC]
   );
-  const weatherRefreshLabel = formatRefreshLabel(refreshSignals.weatherRequestedAt);
-  const mirrorRefreshLabel = formatRefreshLabel(refreshSignals.mirrorRequestedAt);
+  const weatherRefreshLabel = formatRefreshLabel(weather.updatedAt || refreshSignals.weatherRequestedAt);
+  const mirrorRefreshLabel = formatRefreshLabel(sensorData.updatedAt || refreshSignals.mirrorRequestedAt);
   const weatherRefreshActive = isRecentRefresh(refreshSignals.weatherRequestedAt);
   const mirrorRefreshActive = isRecentRefresh(refreshSignals.mirrorRequestedAt);
+  const showYoutubeStage =
+    String(nowPlaying?.source || "").toLowerCase() === "youtube" &&
+    Boolean(nowPlaying?.videoStreamUrl);
 
   return (
     <div>
@@ -988,17 +1392,25 @@ export default function Dashboard() {
         <div className="greeting-block">
           <div className="greeting-line">
             <span id="greeting-prefix">{prefix}</span>{" "}
-            <span className="greeting-highlight" id="greeting-name">{userName}</span>
+            <span className="greeting-highlight" id="greeting-name">{profile.accountName}</span>
           </div>
         </div>
 
-        <div className="middle">
+        {mirrorAlarm ? (
+          <div className="mirror-alarm-banner">
+            <div className="mirror-alarm-title">{mirrorAlarm.title}</div>
+            <div className="mirror-alarm-detail">{mirrorAlarm.detail}</div>
+          </div>
+        ) : null}
+
+        <div className={`middle ${showYoutubeStage ? "middle--youtube-live" : ""}`}>
           {/* ✅ LEFT COL – كل البوكسات */}
           <div className="left-col">
             <WeatherCard
               weather={weather}
               avatar={avatar}
               advice={advice}
+              disabled={!moduleVisibility.weatherEnabled}
               weatherRefreshLabel={weatherRefreshLabel}
               weatherRefreshActive={weatherRefreshActive}
               mirrorRefreshLabel={mirrorRefreshLabel}
@@ -1013,14 +1425,13 @@ export default function Dashboard() {
               moduleVisibility={moduleVisibility}
               refreshLabel={mirrorRefreshLabel}
               refreshActive={mirrorRefreshActive}
+              gestureCamera={gestureCamera}
             />
             <TodayCard
               todayPlan={todayPlan}
               disabled={!moduleVisibility.remindersEnabled}
             />
             <DailyTipCard tip={tip} />
-            <AppsCard />
-            
           </div>
 
           {/* ✅ RIGHT COL */}
@@ -1033,6 +1444,7 @@ export default function Dashboard() {
             <NowPlayingCard
               nowPlaying={nowPlaying}
               mediaVisibility={moduleVisibility}
+              gestureCommand={gestureCommand}
             />
             <CalendarCard
               calendar={calendar}

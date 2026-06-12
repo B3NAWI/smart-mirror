@@ -9,6 +9,14 @@ function formatGesture(gesture) {
     return "Idle";
   }
 
+  if (gesture === "volume_up") {
+    return "Volume Up";
+  }
+
+  if (gesture === "volume_down") {
+    return "Volume Down";
+  }
+
   return gesture[0].toUpperCase() + gesture.slice(1);
 }
 
@@ -35,7 +43,45 @@ export default function SensorsCard({
   moduleVisibility,
   refreshLabel = "",
   refreshActive = false,
+  gestureCamera,
 }) {
+  const gestureCameraEnabled = moduleVisibility?.gestureCameraEnabled ?? false;
+  const gestureCameraState = gestureCamera?.status?.state || "off";
+  const gestureCameraPhase = gestureCamera?.status?.phase || "off";
+  const gestureCameraDetected = gestureCamera?.status?.gesture || "none";
+  const gestureCameraDetail =
+    gestureCamera?.status?.detail ||
+    "Turn on Gesture camera in the mobile mirror settings.";
+  const gestureCameraBadge =
+    !gestureCameraEnabled
+      ? "Off"
+      : gestureCameraPhase === "ready"
+      ? "Ready"
+      : gestureCameraPhase === "locked"
+      ? "Locked"
+      : gestureCameraState === "starting"
+      ? "Starting"
+      : gestureCameraState === "blocked"
+      ? "Needs HTTPS"
+      : gestureCameraState === "unsupported"
+      ? "Unsupported"
+      : gestureCameraState === "error"
+      ? "Check camera"
+      : "Stand by";
+  const gestureCameraLabel =
+    gestureCameraPhase === "ready"
+      ? "Ready"
+      : gestureCameraDetected !== "none"
+      ? formatGesture(gestureCameraDetected)
+      : "Locked";
+  const gestureArrowDirection =
+    gestureCameraPhase === "ready" ||
+    gestureCameraDetected === "none" ||
+    gestureCameraDetected === "volume_up" ||
+    gestureCameraDetected === "volume_down"
+      ? "none"
+      : gestureCameraDetected;
+
   const metrics = [
     {
       key: "temp",
@@ -163,21 +209,42 @@ export default function SensorsCard({
           <div className="sensor-status-top">
             <div className="sensor-status-label">Gesture</div>
             <div className="sensor-status-badge sensor-status-badge--gesture">
-              APDS9960
+              {gestureCameraBadge}
             </div>
           </div>
           <div className="sensor-gesture-row">
             <div className="sensor-gesture-shape" aria-hidden="true">
-              <span className={`gesture-arrow gesture-arrow--${sensorData.gesture}`}></span>
+              <span className={`gesture-arrow gesture-arrow--${gestureArrowDirection}`}></span>
             </div>
             <div>
               <div className="sensor-gesture-value" id="sensor-gesture">
-                {formatGesture(sensorData.gesture)}
+                {gestureCameraLabel}
               </div>
               <div className="sensor-status-copy">
-                Swipe commands appear here when detected.
+                {gestureCameraDetail}
               </div>
             </div>
+          </div>
+          <div className="sensor-gesture-preview-shell">
+            {gestureCameraEnabled ? (
+              <>
+                <video
+                  ref={gestureCamera?.videoRef}
+                  className="sensor-gesture-preview"
+                  autoPlay
+                  muted
+                  playsInline
+                  data-gesture-preview="true"
+                />
+                <div className="sensor-gesture-hint">
+                  Make a fist, wait for Ready, then swipe or open-close your thumb and index fingers for volume.
+                </div>
+              </>
+            ) : (
+              <div className="sensor-gesture-hint">
+                Enable Gesture camera in the mobile app to let the mirror watch for swipes and pinches.
+              </div>
+            )}
           </div>
         </div>
       </div>

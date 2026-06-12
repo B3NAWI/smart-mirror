@@ -115,6 +115,10 @@ If the API key is missing or wrong, protected endpoints return `401`.
 #### Existing sensor endpoints
 
 - `GET /api/state`
+- `GET /api/state/modules`
+- `PATCH /api/state/modules`
+- `PATCH /api/state/runtime`
+- `POST /api/state/refresh`
 - `POST /api/test`
 
 #### Calendar endpoints

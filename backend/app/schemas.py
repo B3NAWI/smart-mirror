@@ -2,7 +2,7 @@ from datetime import date as date_type
 from datetime import datetime, time as time_type
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 TodoPriority = Literal["low", "medium", "high"]
 MusicSource = Literal["spotify", "youtube", "apple_music", "local", "other"]
@@ -345,6 +345,26 @@ class NowPlayingUpdate(BaseModel):
         return duration
 
 
+class NowPlayingAdvanceRequest(BaseModel):
+    exclude_track_urls: List[str] = Field(default_factory=list)
+
+    @field_validator("exclude_track_urls", mode="before")
+    @classmethod
+    def clean_exclude_track_urls(cls, value):
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            return []
+        cleaned = []
+        for item in value:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text:
+                cleaned.append(text)
+        return cleaned
+
+
 class NowPlayingRead(NowPlayingBase):
     model_config = ConfigDict(from_attributes=True)
 
@@ -353,9 +373,114 @@ class NowPlayingRead(NowPlayingBase):
     updated_at: datetime
     effective_progress_seconds: int = 0
     progress_percent: float = 0
+    video_stream_url: Optional[str] = None
+    video_thumbnail_url: Optional[str] = None
+    playback_note: Optional[str] = None
+
+
+class PlannerSegmentBase(BaseModel):
+    id: str
+    title: str
+    start_time: time_type
+    end_time: Optional[time_type] = None
+    is_done: bool = False
+    alarm_at_start: bool = False
+    alarm_at_end: bool = False
+
+    @field_validator("id", "title", mode="before")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        if value is None:
+            raise ValueError("value cannot be empty")
+        cleaned = str(value).strip()
+        if not cleaned:
+            raise ValueError("value cannot be empty")
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_times(self):
+        if self.end_time and self.end_time <= self.start_time:
+            raise ValueError("end_time must be after start_time")
+        return self
+
+
+class PlannerSegmentUpsert(PlannerSegmentBase):
+    pass
+
+
+class PlannerSegmentUpdate(BaseModel):
+    title: Optional[str] = None
+    start_time: Optional[time_type] = None
+    end_time: Optional[time_type] = None
+    is_done: Optional[bool] = None
+    alarm_at_start: Optional[bool] = None
+    alarm_at_end: Optional[bool] = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def validate_title(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        cleaned = str(value).strip()
+        if not cleaned:
+            raise ValueError("title cannot be empty")
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_times(self):
+        if self.start_time and self.end_time and self.end_time <= self.start_time:
+            raise ValueError("end_time must be after start_time")
+        return self
+
+
+class PlannerSegmentRead(PlannerSegmentBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    backend_event_id: str = ""
+    created_at: datetime
+    updated_at: datetime
+
+
+class PlannerPlanBase(BaseModel):
+    id: str
+    title: str
+    date: date_type
+    source: str = "mobile"
+    segments: List[PlannerSegmentUpsert] = Field(default_factory=list)
+
+    @field_validator("id", "title", mode="before")
+    @classmethod
+    def validate_plan_text(cls, value: str) -> str:
+        if value is None:
+            raise ValueError("value cannot be empty")
+        cleaned = str(value).strip()
+        if not cleaned:
+            raise ValueError("value cannot be empty")
+        return cleaned
+
+    @field_validator("source", mode="before")
+    @classmethod
+    def default_source(cls, value: Optional[str]) -> str:
+        cleaned = _clean_optional_text(value)
+        return cleaned or "mobile"
+
+
+class PlannerPlanUpsert(PlannerPlanBase):
+    pass
+
+
+class PlannerPlanRead(BaseModel):
+    id: str
+    title: str
+    date: date_type
+    source: str = "mobile"
+    segments: List[PlannerSegmentRead]
+    created_at: datetime
+    updated_at: datetime
 
 
 class MirrorModuleSettingsBase(BaseModel):
+    weather_enabled: bool = True
     date_enabled: bool = True
     reminders_enabled: bool = True
     calendar_enabled: bool = True
@@ -364,9 +489,11 @@ class MirrorModuleSettingsBase(BaseModel):
     pressure_enabled: bool = True
     spotify_enabled: bool = True
     youtube_enabled: bool = True
+    gesture_camera_enabled: bool = False
 
 
 class MirrorModuleSettingsUpdate(BaseModel):
+    weather_enabled: Optional[bool] = None
     date_enabled: Optional[bool] = None
     reminders_enabled: Optional[bool] = None
     calendar_enabled: Optional[bool] = None
@@ -375,6 +502,7 @@ class MirrorModuleSettingsUpdate(BaseModel):
     pressure_enabled: Optional[bool] = None
     spotify_enabled: Optional[bool] = None
     youtube_enabled: Optional[bool] = None
+    gesture_camera_enabled: Optional[bool] = None
 
 
 class MirrorModuleSettingsRead(MirrorModuleSettingsBase):
@@ -393,7 +521,34 @@ class MirrorStateResponse(BaseModel):
     pressure: Optional[int] = None
     motion: bool = False
     gesture: str = "none"
+    mirror_state_updated_at: Optional[datetime] = None
+    weather_temperature_c: Optional[float] = None
+    weather_description: str = ""
+    weather_location_label: str = ""
+    weather_region: str = ""
+    weather_source: str = ""
+    weather_is_day: Optional[int] = None
+    weather_updated_at: Optional[datetime] = None
+    active_account_id: str = ""
+    active_account_name: str = ""
+    profile_updated_at: Optional[datetime] = None
     modules: MirrorModuleSettingsRead
+
+
+class MirrorRuntimeStateUpdate(BaseModel):
+    temperature: Optional[float] = None
+    humidity: Optional[int] = None
+    pressure: Optional[int] = None
+    motion: Optional[bool] = None
+    gesture: Optional[str] = None
+    weather_temperature_c: Optional[float] = None
+    weather_description: Optional[str] = None
+    weather_location_label: Optional[str] = None
+    weather_region: Optional[str] = None
+    weather_source: Optional[str] = None
+    weather_is_day: Optional[int] = None
+    active_account_id: Optional[str] = None
+    active_account_name: Optional[str] = None
 
 
 class MirrorRefreshRequest(BaseModel):

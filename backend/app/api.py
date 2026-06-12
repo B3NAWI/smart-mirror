@@ -10,12 +10,14 @@ from .database import get_db
 from .models import MirrorModuleSettings
 from .schemas import (
     MirrorRefreshRequest,
+    MirrorRuntimeStateUpdate,
     MirrorModuleSettingsRead,
     MirrorModuleSettingsUpdate,
     MirrorStateResponse,
 )
 from .daily_plan_routes import router as daily_plan_router
 from .now_playing_routes import router as now_playing_router
+from .planner_routes import router as planner_router
 from .state import get_state, update_state
 from .todo_routes import router as todo_router
 from .weather_routes import router as weather_router
@@ -74,6 +76,27 @@ def update_state_modules(
     return settings
 
 
+@router.patch(
+    "/api/state/runtime",
+    response_model=MirrorStateResponse,
+    dependencies=[Depends(require_api_key)],
+)
+def update_runtime_state(
+    payload: MirrorRuntimeStateUpdate,
+    db: Session = Depends(get_db),
+):
+    updates = payload.model_dump(exclude_unset=True, exclude_none=True)
+    if updates:
+        update_state(updates)
+
+    return MirrorStateResponse.model_validate(
+        {
+            **get_state(),
+            "modules": _get_or_create_module_settings(db),
+        }
+    )
+
+
 @router.post(
     "/api/state/refresh",
     response_model=MirrorModuleSettingsRead,
@@ -111,5 +134,6 @@ def test_update():
 router.include_router(calendar_router)
 router.include_router(todo_router)
 router.include_router(daily_plan_router)
+router.include_router(planner_router)
 router.include_router(now_playing_router)
 router.include_router(weather_router)

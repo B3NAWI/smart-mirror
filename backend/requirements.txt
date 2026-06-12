@@ -3,3 +3,4 @@ uvicorn[standard]
 paho-mqtt
 python-dotenv
 sqlalchemy
+yt-dlp

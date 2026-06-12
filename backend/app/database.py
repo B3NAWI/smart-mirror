@@ -53,6 +53,13 @@ def init_database() -> None:
                         text("PRAGMA table_info(mirror_module_settings)")
                     ).fetchall()
                 }
+                if "weather_enabled" not in module_columns:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE mirror_module_settings "
+                            "ADD COLUMN weather_enabled BOOLEAN NOT NULL DEFAULT 1"
+                        )
+                    )
                 if "weather_refresh_requested_at" not in module_columns:
                     connection.execute(
                         text(
@@ -65,5 +72,47 @@ def init_database() -> None:
                         text(
                             "ALTER TABLE mirror_module_settings "
                             "ADD COLUMN mirror_refresh_requested_at DATETIME"
+                        )
+                    )
+                if "gesture_camera_enabled" not in module_columns:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE mirror_module_settings "
+                            "ADD COLUMN gesture_camera_enabled BOOLEAN NOT NULL DEFAULT 0"
+                        )
+                    )
+
+            planner_segment_table_exists = connection.execute(
+                text(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type = 'table' AND name = 'planner_segments'"
+                )
+            ).fetchone()
+            if planner_segment_table_exists:
+                planner_segment_columns = {
+                    row[1]
+                    for row in connection.execute(
+                        text("PRAGMA table_info(planner_segments)")
+                    ).fetchall()
+                }
+                if "backend_event_id" not in planner_segment_columns:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE planner_segments "
+                            "ADD COLUMN backend_event_id VARCHAR(64) NOT NULL DEFAULT ''"
+                        )
+                    )
+                if "alarm_at_start" not in planner_segment_columns:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE planner_segments "
+                            "ADD COLUMN alarm_at_start BOOLEAN NOT NULL DEFAULT 0"
+                        )
+                    )
+                if "alarm_at_end" not in planner_segment_columns:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE planner_segments "
+                            "ADD COLUMN alarm_at_end BOOLEAN NOT NULL DEFAULT 0"
                         )
                     )

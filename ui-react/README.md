@@ -1,16 +1,35 @@
-# React + Vite
+# HALO MIRROR Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Environment
 
-Currently, two official plugins are available:
+The mirror UI reads from the backend with:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- `VITE_BACKEND_URL`
+- `VITE_SPOTIFY_CLIENT_ID`
 
-## React Compiler
+For gesture-camera runtime updates, it can also write the detected swipe back to the backend with:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- `VITE_BACKEND_API_KEY`
 
-## Expanding the ESLint configuration
+If `VITE_BACKEND_API_KEY` is not set, the frontend falls back to `halo-local-dev-key`, which matches the mobile app's local development default.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Spotify Premium playback
+
+To let the mirror website become a real Spotify player instead of a simple embed, add:
+
+- `VITE_SPOTIFY_CLIENT_ID`
+
+Then add your mirror website URL as a Spotify redirect URI in the Spotify developer dashboard, for example:
+
+- `http://localhost:5173`
+- `http://192.168.1.xxx:5173`
+
+## Gesture camera
+
+The mirror website now includes:
+
+- a live browser camera preview in the Sensors card
+- MediaPipe hand tracking for swipe detection
+- shared `gesture` state updates through `PATCH /api/state/runtime`
+
+Turn it on from the Android app's mirror settings with the `Gesture camera` switch.

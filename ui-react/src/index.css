@@ -137,6 +137,32 @@ body {
   color: #38bdf8;
 }
 
+.mirror-alarm-banner {
+  margin: 0 auto 12px;
+  width: min(680px, calc(100% - 24px));
+  padding: 14px 18px;
+  border: 1px solid rgba(251, 191, 36, 0.34);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(120, 53, 15, 0.78), rgba(15, 23, 42, 0.88));
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.28);
+  text-align: center;
+  animation: fadeIn 0.35s ease-out;
+}
+
+.mirror-alarm-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fde68a;
+}
+
+.mirror-alarm-detail {
+  margin-top: 4px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(14px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -154,6 +180,12 @@ body {
   padding-top: 8px;
   padding-bottom: 10px;
   align-items: flex-start;
+  transition: grid-template-columns 0.55s ease, gap 0.55s ease;
+}
+
+.middle--youtube-live {
+  grid-template-columns: 1.05fr 1.15fr;
+  gap: 16px;
 }
 
 .left-col {
@@ -163,6 +195,7 @@ body {
   padding-left: 6px;
   padding-right: 4px;
   justify-content: flex-start;
+  transition: transform 0.45s ease, opacity 0.45s ease;
 }
 
 .right-col {
@@ -172,6 +205,15 @@ body {
   padding-right: 6px;
   padding-left: 4px;
   justify-content: flex-start;
+  transition: transform 0.45s ease, opacity 0.45s ease;
+}
+
+.middle--youtube-live .left-col {
+  transform: scale(0.992) translateX(-2px);
+}
+
+.middle--youtube-live .right-col {
+  transform: translateX(2px);
 }
 
 /* ================================
@@ -830,6 +872,31 @@ body {
   color: #e0f2fe;
 }
 
+.sensor-gesture-preview-shell {
+  margin-top: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.sensor-gesture-preview {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 18px;
+  object-fit: cover;
+  transform: scaleX(-1);
+  background:
+    radial-gradient(circle at top, rgba(59, 130, 246, 0.16), transparent 46%),
+    rgba(2, 6, 23, 0.88);
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+
+.sensor-gesture-hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(191, 219, 254, 0.72);
+}
+
 .motion-on {
   color: #4ade80;
   border-color: rgba(74, 222, 128, 0.32);
@@ -1333,11 +1400,130 @@ body {
     rgba(15, 23, 42, 0.9);
 }
 
+.music-card--video {
+  background:
+    radial-gradient(circle at top left, rgba(248, 113, 113, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(96, 165, 250, 0.16), transparent 38%),
+    rgba(15, 23, 42, 0.92);
+}
+
 .music-shell {
   display: flex;
   align-items: center;
   gap: 16px;
   margin-top: 8px;
+}
+
+.music-video-shell {
+  margin-top: 10px;
+  display: grid;
+  gap: 14px;
+}
+
+.music-video-stage {
+  position: relative;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  background:
+    linear-gradient(160deg, rgba(30, 41, 59, 0.82), rgba(15, 23, 42, 0.98)),
+    rgba(15, 23, 42, 0.95);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 22px 46px rgba(15, 23, 42, 0.42);
+  animation: videoStageEnter 0.6s ease-out both;
+}
+
+.music-video-frame {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  background: #020617;
+  object-fit: cover;
+}
+
+.music-video-glow {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 40%;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(2, 6, 23, 0.18) 40%, rgba(2, 6, 23, 0.48));
+}
+
+.music-video-overlay {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 12px 18px;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.74);
+  color: #f8fafc;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.42);
+  z-index: 2;
+}
+
+.music-video-meta {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.music-video-pulse {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  background:
+    linear-gradient(145deg, rgba(248, 113, 113, 0.18), rgba(30, 41, 59, 0.62)),
+    rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(248, 113, 113, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 14px 30px rgba(15, 23, 42, 0.28);
+}
+
+.music-video-pulse span {
+  display: block;
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: radial-gradient(circle, #fda4af 0, #f43f5e 72%);
+  animation: videoPulse 2.2s ease-out infinite;
+}
+
+.music-video-pulse span:nth-child(2) {
+  animation-delay: 0.55s;
+}
+
+.music-video-pulse span:nth-child(3) {
+  animation-delay: 1.1s;
+}
+
+.music-track--video {
+  margin-top: 10px;
+}
+
+.music-video-tag {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(248, 113, 113, 0.18);
+  background: rgba(15, 23, 42, 0.5);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(254, 205, 211, 0.9);
 }
 
 .music-orb {
@@ -1500,9 +1686,51 @@ body {
   50%      { transform: scaleY(1.2); opacity: 1; }
 }
 
+@keyframes videoStageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes videoPulse {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.95;
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.34);
+  }
+  80% {
+    transform: scale(2.8);
+    opacity: 0;
+    box-shadow: 0 0 0 18px rgba(244, 63, 94, 0);
+  }
+  100% {
+    transform: scale(0.55);
+    opacity: 0;
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0);
+  }
+}
+
 @media (max-width: 900px) {
+  .middle--youtube-live {
+    grid-template-columns: 1fr;
+  }
+
+  .middle--youtube-live .left-col,
+  .middle--youtube-live .right-col {
+    transform: none;
+  }
+
   .music-shell {
     align-items: flex-start;
+  }
+
+  .music-video-meta {
+    flex-direction: column;
   }
 
   .music-track {

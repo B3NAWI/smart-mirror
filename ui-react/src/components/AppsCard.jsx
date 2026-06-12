@@ -1,20 +1,3 @@
-const featuredShortcuts = [
-  {
-    icon: "YT",
-    name: "YouTube",
-    hint: "Play videos and playlists on the mirror.",
-    tone: "red",
-    state: "Ready",
-  },
-  {
-    icon: "AI",
-    name: "AI Assistant",
-    hint: "Ask, search, and trigger smart mirror actions.",
-    tone: "violet",
-    state: "Voice",
-  },
-];
-
 const quickShortcuts = [
   { icon: "MU", name: "Music", hint: "Quick listening", tone: "cyan" },
   { icon: "NW", name: "News", hint: "Morning brief", tone: "amber" },
@@ -22,19 +5,60 @@ const quickShortcuts = [
   { icon: "ST", name: "Settings", hint: "Mirror controls", tone: "slate" },
 ];
 
-export default function AppsCard() {
+function buildMediaShortcut({ icon, name, tone, enabled, source, isPlaying }) {
+  const isCurrentSource = source === name.toLowerCase();
+  return {
+    icon,
+    name,
+    tone,
+    state: !enabled ? "Off" : isCurrentSource && isPlaying ? "Live" : "Ready",
+    hint: !enabled
+      ? `Turn ${name} back on from the mobile mirror settings.`
+      : isCurrentSource
+      ? `${name} is currently available on the mirror.`
+      : `Send ${name} content to the mirror from the phone app.`,
+  };
+}
+
+export default function AppsCard({ mediaVisibility, nowPlaying }) {
+  const spotifyEnabled = mediaVisibility?.spotifyEnabled ?? true;
+  const youtubeEnabled = mediaVisibility?.youtubeEnabled ?? true;
+  const source = String(nowPlaying?.source || "").toLowerCase();
+  const isPlaying = Boolean(nowPlaying?.isPlaying && nowPlaying?.title);
+
+  const featuredShortcuts = [
+    buildMediaShortcut({
+      icon: "SP",
+      name: "Spotify",
+      tone: "emerald",
+      enabled: spotifyEnabled,
+      source,
+      isPlaying,
+    }),
+    buildMediaShortcut({
+      icon: "YT",
+      name: "YouTube",
+      tone: "red",
+      enabled: youtubeEnabled,
+      source,
+      isPlaying,
+    }),
+  ];
+
   return (
     <div className="card apps-card">
       <div className="card-title-row">
         <div className="card-title">Apps &amp; Shortcuts</div>
-        <div className="chip">Ready</div>
+        <div className="chip">
+          {spotifyEnabled || youtubeEnabled ? "Linked" : "Off"}
+        </div>
       </div>
 
       <div className="apps-stage">
         <div className="apps-banner">
           <div className="apps-banner-title">Mirror-ready actions</div>
           <div className="apps-banner-copy">
-            Keep your most useful tools calm, visible, and one gesture away.
+            Keep the phone app and mirror modules aligned so media shortcuts actually reflect what is enabled.
           </div>
         </div>
 
