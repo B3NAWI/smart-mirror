@@ -83,6 +83,7 @@ API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "5000"))
 
 HALO_API_KEY = os.getenv("HALO_API_KEY", "")
+HALO_DEV_API_KEY = os.getenv("HALO_DEV_API_KEY", "halo-local-dev-key").strip()
 DATABASE_URL = _normalize_database_url(
     os.getenv("DATABASE_URL", "sqlite:///data/halo_mirror.db")
 )

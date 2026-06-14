@@ -63,6 +63,8 @@ body {
   min-height: 100vh;     /* ✅ بدل height:100% */
   height: auto;          /* ✅ يخلي الصفحة تتمدد */
   padding: 26px 18px 90px; /* ✅ مساحة زيادة تحت عشان credits */
+  max-width: 1440px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -192,6 +194,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
   padding-left: 6px;
   padding-right: 4px;
   justify-content: flex-start;
@@ -202,6 +205,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
   padding-right: 6px;
   padding-left: 4px;
   justify-content: flex-start;
@@ -214,6 +218,30 @@ body {
 
 .middle--youtube-live .right-col {
   transform: translateX(2px);
+}
+
+@media (orientation: portrait) and (min-width: 700px) {
+  .shell {
+    max-width: 980px;
+    padding: 20px 12px 76px;
+  }
+
+  .middle {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .middle--youtube-live {
+    grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
+    gap: 12px;
+  }
+
+  .left-col,
+  .right-col {
+    gap: 10px;
+    padding-left: 0;
+    padding-right: 0;
+  }
 }
 
 /* ================================
@@ -2170,5 +2198,16 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+}
+
+@media (orientation: portrait) and (min-width: 700px) and (max-width: 900px) {
+  .middle--youtube-live {
+    grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
+  }
+
+  .middle--youtube-live .left-col,
+  .middle--youtube-live .right-col {
+    transform: none;
   }
 }
