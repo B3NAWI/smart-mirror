@@ -2067,3 +2067,108 @@ body {
     min-width: 0;
   }
 }
+
+.halo-voice-status {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.86);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.34);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.halo-voice-status__primary,
+.halo-voice-status__stop {
+  border: 0;
+  background: transparent;
+  color: #f8fafc;
+  cursor: pointer;
+}
+
+.halo-voice-status__primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.halo-voice-status__stop {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.halo-voice-status__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.84);
+  box-shadow: 0 0 0 0 rgba(148, 163, 184, 0.3);
+}
+
+.halo-voice-status--listening .halo-voice-status__dot {
+  background: #38bdf8;
+  box-shadow: 0 0 0 8px rgba(56, 189, 248, 0.08);
+  animation: haloVoicePulse 1.5s ease-out infinite;
+}
+
+.halo-voice-status--thinking .halo-voice-status__dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.08);
+  animation: haloVoicePulse 1.25s ease-out infinite;
+}
+
+.halo-voice-status--speaking .halo-voice-status__dot {
+  background: #34d399;
+  box-shadow: 0 0 0 8px rgba(52, 211, 153, 0.08);
+  animation: haloVoicePulse 1s ease-out infinite;
+}
+
+.halo-voice-status--error .halo-voice-status__dot {
+  background: #fb7185;
+}
+
+@keyframes haloVoicePulse {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.86;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.92);
+    opacity: 0.86;
+  }
+}
+
+@media (max-width: 560px) {
+  .halo-voice-status {
+    right: 12px;
+    bottom: 12px;
+    padding: 8px 10px;
+  }
+
+  .halo-voice-status__label {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

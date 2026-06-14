@@ -16,6 +16,12 @@ WEATHER_FIELDS = {
     "weather_is_day",
 }
 PROFILE_FIELDS = {"active_account_id", "active_account_name"}
+CONTROL_FIELDS = {
+    "screen_name",
+    "brightness_level",
+    "volume_level",
+    "sleeping",
+}
 
 
 @dataclass
@@ -36,6 +42,11 @@ class MirrorState:
     active_account_id: str = ""
     active_account_name: str = ""
     profile_updated_at: Optional[str] = None
+    screen_name: str = "today"
+    brightness_level: int = 70
+    volume_level: int = 50
+    sleeping: bool = False
+    control_updated_at: Optional[str] = None
 
 
 def _timestamp() -> str:
@@ -86,6 +97,11 @@ def _load_state() -> MirrorState:
         active_account_id=str(payload.get("active_account_id") or ""),
         active_account_name=str(payload.get("active_account_name") or ""),
         profile_updated_at=payload.get("profile_updated_at"),
+        screen_name=str(payload.get("screen_name") or "today"),
+        brightness_level=_coerce_int(payload.get("brightness_level")) or 70,
+        volume_level=_coerce_int(payload.get("volume_level")) or 50,
+        sleeping=bool(payload.get("sleeping", False)),
+        control_updated_at=payload.get("control_updated_at"),
     )
 
 
@@ -119,8 +135,17 @@ def update_state(data: Dict[str, Any]) -> None:
                 value = _coerce_int(value)
             elif key == "motion":
                 value = bool(value)
+            elif key == "sleeping":
+                value = bool(value)
+            elif key in {"brightness_level", "volume_level"}:
+                numeric_value = _coerce_int(value)
+                if numeric_value is None:
+                    continue
+                value = max(0, min(100, numeric_value))
             elif key in {"gesture", "weather_description", "weather_location_label", "weather_region", "weather_source", "active_account_id", "active_account_name"}:
                 value = str(value or "")
+            elif key == "screen_name":
+                value = str(value or "today")
 
             setattr(_state, key, value)
 
@@ -130,6 +155,8 @@ def update_state(data: Dict[str, Any]) -> None:
                 weather_changed = True
             if key in PROFILE_FIELDS:
                 profile_changed = True
+            if key in CONTROL_FIELDS:
+                _state.control_updated_at = _timestamp()
 
         now = _timestamp()
         if sensor_changed:

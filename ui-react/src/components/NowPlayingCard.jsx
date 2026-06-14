@@ -94,6 +94,24 @@ export default function NowPlayingCard({
       : isPlaying
       ? "Video on mirror"
       : "Queued for mirror";
+  const queueVolumeHud = (action, explicitLevel = null) => {
+    window.setTimeout(() => {
+      setVolumeHud((current) => {
+        const delta = action === "volume_up" ? 50 : -50;
+        const nextLevel = Number.isFinite(explicitLevel)
+          ? explicitLevel
+          : Math.min(
+              Math.max((Number.isFinite(current.level) ? current.level : 80) + delta, 0),
+              100
+            );
+        return {
+          visible: true,
+          level: nextLevel,
+          label: action === "volume_up" ? "Volume Up" : "Volume Down",
+        };
+      });
+    }, 0);
+  };
 
   useEffect(() => {
     if (!showYoutubeStage || !videoRef.current) {
@@ -119,18 +137,7 @@ export default function NowPlayingCard({
 
     if (showSpotifyStage) {
       if (gestureCommand.action === "volume_up" || gestureCommand.action === "volume_down") {
-        setVolumeHud((current) => {
-          const currentLevel = Number.isFinite(current.level) ? current.level : 80;
-          const nextLevel = Math.min(
-            Math.max(currentLevel + (gestureCommand.action === "volume_up" ? 50 : -50), 0),
-            100
-          );
-          return {
-            visible: true,
-            level: nextLevel,
-            label: gestureCommand.action === "volume_up" ? "Volume Up" : "Volume Down",
-          };
-        });
+        queueVolumeHud(gestureCommand.action);
       }
       return;
     }
@@ -148,11 +155,7 @@ export default function NowPlayingCard({
       video.muted = false;
       video.volume = nextVolume;
       preferredVolumeRef.current = nextVolume;
-      setVolumeHud({
-        visible: true,
-        level: Math.round(nextVolume * 100),
-        label: gestureCommand.action === "volume_up" ? "Volume Up" : "Volume Down",
-      });
+      queueVolumeHud(gestureCommand.action, Math.round(nextVolume * 100));
       return;
     }
 
@@ -187,18 +190,7 @@ export default function NowPlayingCard({
     }
 
     if (gestureCommand.action === "volume_up" || gestureCommand.action === "volume_down") {
-      setVolumeHud((current) => {
-        const currentLevel = Number.isFinite(current.level) ? current.level : 80;
-        const nextLevel = Math.min(
-          Math.max(currentLevel + (gestureCommand.action === "volume_up" ? 50 : -50), 0),
-          100
-        );
-        return {
-          visible: true,
-          level: nextLevel,
-          label: gestureCommand.action === "volume_up" ? "Volume Up" : "Volume Down",
-        };
-      });
+      queueVolumeHud(gestureCommand.action);
     }
   }, [gestureCommand, showSpotifyStage, showYoutubeStage]);
 

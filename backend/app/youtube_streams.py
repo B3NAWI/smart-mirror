@@ -26,6 +26,14 @@ class SuggestedYouTubeVideo:
     thumbnail_url: str = ""
 
 
+@dataclass
+class SearchYouTubeVideoResult:
+    watch_url: str
+    title: str = ""
+    thumbnail_url: str = ""
+    duration_seconds: Optional[int] = None
+
+
 _cache: dict[str, ResolvedYouTubeStream] = {}
 _lock = Lock()
 
@@ -243,3 +251,56 @@ def resolve_youtube_stream(raw_url: Optional[str]) -> Optional[ResolvedYouTubeSt
         _cache[normalized_url] = resolved
 
     return resolved
+
+
+def search_youtube_videos(
+    query: str,
+    *,
+    limit: int = 5,
+) -> list[SearchYouTubeVideoResult]:
+    cleaned_query = (query or "").strip()
+    if not cleaned_query:
+        return []
+
+    safe_limit = max(1, min(limit, 10))
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": True,
+        "skip_download": True,
+    }
+
+    with YoutubeDL(options) as ydl:
+        search_payload = ydl.extract_info(
+            f"ytsearch{safe_limit}:{cleaned_query}",
+            download=False,
+        )
+
+    entries = search_payload.get("entries") if isinstance(search_payload, dict) else None
+    if not isinstance(entries, list):
+        return []
+
+    results: list[SearchYouTubeVideoResult] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        watch_url = _normalize_youtube_url(
+            entry.get("webpage_url")
+            or entry.get("url")
+            or (
+                f"https://www.youtube.com/watch?v={entry.get('id')}"
+                if entry.get("id")
+                else ""
+            )
+        )
+        if "youtube.com/watch?v=" not in watch_url:
+            continue
+        results.append(
+            SearchYouTubeVideoResult(
+                watch_url=watch_url,
+                title=str(entry.get("title") or "").strip(),
+                thumbnail_url=str(entry.get("thumbnail") or "").strip(),
+                duration_seconds=entry.get("duration"),
+            )
+        )
+    return results

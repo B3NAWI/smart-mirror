@@ -1,11 +1,12 @@
 from datetime import date as date_type
 from datetime import datetime, time as time_type
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 TodoPriority = Literal["low", "medium", "high"]
 MusicSource = Literal["spotify", "youtube", "apple_music", "local", "other"]
+MirrorScreenName = Literal["today", "calendar", "weather", "sensors", "youtube"]
 
 
 def _clean_optional_text(value: Optional[str]) -> Optional[str]:
@@ -532,6 +533,11 @@ class MirrorStateResponse(BaseModel):
     active_account_id: str = ""
     active_account_name: str = ""
     profile_updated_at: Optional[datetime] = None
+    screen_name: MirrorScreenName = "today"
+    brightness_level: int = 70
+    volume_level: int = 50
+    sleeping: bool = False
+    control_updated_at: Optional[datetime] = None
     modules: MirrorModuleSettingsRead
 
 
@@ -549,8 +555,83 @@ class MirrorRuntimeStateUpdate(BaseModel):
     weather_is_day: Optional[int] = None
     active_account_id: Optional[str] = None
     active_account_name: Optional[str] = None
+    screen_name: Optional[MirrorScreenName] = None
+    brightness_level: Optional[int] = None
+    volume_level: Optional[int] = None
+    sleeping: Optional[bool] = None
+
+    @field_validator("brightness_level", "volume_level", mode="before")
+    @classmethod
+    def validate_control_level(cls, value: Optional[int]) -> Optional[int]:
+        if value is None:
+            return value
+        numeric_value = int(value)
+        if numeric_value < 0 or numeric_value > 100:
+            raise ValueError("control levels must be between 0 and 100")
+        return numeric_value
 
 
 class MirrorRefreshRequest(BaseModel):
     weather: bool = False
     mirror_data: bool = False
+
+
+VoiceSessionClient = Literal["mirror", "mobile", "unknown"]
+VoiceSessionOutputModality = Literal["audio", "text"]
+
+
+class VoiceSessionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client: VoiceSessionClient = "unknown"
+    output_modality: VoiceSessionOutputModality = "audio"
+    voice: Optional[str] = None
+
+    @field_validator("voice", mode="before")
+    @classmethod
+    def clean_voice(cls, value: Optional[str]) -> Optional[str]:
+        cleaned = _clean_optional_text(value)
+        if cleaned and len(cleaned) > 64:
+            raise ValueError("voice must be 64 characters or fewer")
+        return cleaned
+
+
+class VoiceSessionSecret(BaseModel):
+    value: str
+    expires_at: int
+
+
+class VoiceSessionMetadata(BaseModel):
+    model: str
+    instructions: str
+    output_modality: VoiceSessionOutputModality
+    voice: Optional[str] = None
+    reasoning_effort: str
+    max_input_tokens: int
+    max_output_tokens: int
+    idle_timeout_seconds: int
+    session_timeout_seconds: int
+    wake_words: List[str]
+
+
+class VoiceSessionResponse(BaseModel):
+    client_secret: VoiceSessionSecret
+    session: Dict[str, Any]
+    metadata: VoiceSessionMetadata
+
+
+class VoiceToolExecuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("tool", mode="before")
+    @classmethod
+    def validate_tool_name(cls, value: Any) -> str:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            raise ValueError("tool is required")
+        if len(cleaned) > 128:
+            raise ValueError("tool must be 128 characters or fewer")
+        return cleaned

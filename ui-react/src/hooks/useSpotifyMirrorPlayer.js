@@ -291,6 +291,7 @@ export default function useSpotifyMirrorPlayer({ enabled, trackUrl, gestureComma
   const currentUriRef = useRef("");
   const gestureIdRef = useRef("");
   const activationBoundRef = useRef(false);
+  const playbackVolumeRef = useRef(80);
   const [authState, setAuthState] = useState({
     ready: false,
     connected: false,
@@ -308,6 +309,10 @@ export default function useSpotifyMirrorPlayer({ enabled, trackUrl, gestureComma
   const [lastRequestedUri, setLastRequestedUri] = useState("");
 
   const spotifyUri = enabled ? buildSpotifyUri(trackUrl || "") : "";
+
+  useEffect(() => {
+    playbackVolumeRef.current = playbackState.volume;
+  }, [playbackState.volume]);
 
   const connectSpotify = async () => {
     if (!SPOTIFY_CLIENT_ID || typeof window === "undefined") {
@@ -487,7 +492,7 @@ export default function useSpotifyMirrorPlayer({ enabled, trackUrl, gestureComma
           const currentTrack = state.track_window?.current_track;
           const artistNames = currentTrack?.artists?.map((artist) => artist.name).join(", ") || "";
           currentUriRef.current = currentTrack?.uri || "";
-          let level = playbackState.volume;
+          let level = playbackVolumeRef.current;
           try {
             level = Math.round((await player.getVolume()) * 100);
           } catch {

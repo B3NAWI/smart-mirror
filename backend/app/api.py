@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 
 from .auth import require_api_key
 from .calendar_routes import router as calendar_router
-from .database import get_db
+from .config import HALO_VOICE_ENABLED, OPENAI_API_KEY
+from .database import database_healthcheck, get_db
 from .models import MirrorModuleSettings
+from .mqtt_client import get_mqtt_status
 from .schemas import (
     MirrorRefreshRequest,
     MirrorRuntimeStateUpdate,
@@ -20,6 +22,7 @@ from .now_playing_routes import router as now_playing_router
 from .planner_routes import router as planner_router
 from .state import get_state, update_state
 from .todo_routes import router as todo_router
+from .voice_routes import router as voice_router
 from .weather_routes import router as weather_router
 
 router = APIRouter()
@@ -50,6 +53,31 @@ def read_state(db: Session = Depends(get_db)):
             "modules": _get_or_create_module_settings(db),
         }
     )
+
+
+@router.get("/api/health")
+def read_health(db: Session = Depends(get_db)):
+    modules = _get_or_create_module_settings(db)
+    database_connected = database_healthcheck()
+    return {
+        "status": "ok" if database_connected else "degraded",
+        "database": {
+            "connected": database_connected,
+            "url_scheme": "sqlite"
+            if str(db.bind.url).startswith("sqlite")
+            else db.bind.url.get_backend_name(),
+        },
+        "mqtt": get_mqtt_status(),
+        "voice": {
+            "enabled": HALO_VOICE_ENABLED,
+            "openai_configured": bool(OPENAI_API_KEY),
+        },
+        "modules": {
+            "weather_enabled": modules.weather_enabled,
+            "gesture_camera_enabled": modules.gesture_camera_enabled,
+        },
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
 
 @router.get("/api/state/modules", response_model=MirrorModuleSettingsRead)
@@ -137,3 +165,4 @@ router.include_router(daily_plan_router)
 router.include_router(planner_router)
 router.include_router(now_playing_router)
 router.include_router(weather_router)
+router.include_router(voice_router)

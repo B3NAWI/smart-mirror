@@ -116,3 +116,12 @@ def init_database() -> None:
                             "ADD COLUMN alarm_at_end BOOLEAN NOT NULL DEFAULT 0"
                         )
                     )
+
+
+def database_healthcheck() -> bool:
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False

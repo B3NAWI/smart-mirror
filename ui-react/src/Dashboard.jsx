@@ -6,7 +6,9 @@ import SensorsCard from "./components/SensorsCard";
 import WeatherCard from "./components/WeatherCard";
 import TodayCard from "./components/TodayCard";
 import DailyTipCard from "./components/DailyTipCard";
+import HaloVoiceStatus from "./components/HaloVoiceStatus";
 import useMirrorGestureCamera from "./hooks/useMirrorGestureCamera";
+import { createHaloVoiceClient } from "./services/haloVoiceClient";
 
 const apiBaseUrl = (() => {
   const configured = (import.meta.env.VITE_BACKEND_URL || "").trim();
@@ -606,6 +608,39 @@ function normalizePlannerPlans(payload) {
   }));
 }
 
+function resolveVoiceScreenName(detail) {
+  const toolName = String(detail?.tool || detail?.result?.tool || "").trim();
+  const screenName = String(
+    detail?.arguments?.screenName || detail?.result?.data?.screen_name || ""
+  ).trim();
+
+  if (toolName === "mirror_set_screen" && screenName) {
+    return screenName;
+  }
+
+  if (toolName === "mirror_show_today") {
+    return "today";
+  }
+
+  if (toolName === "mirror_show_calendar") {
+    return "calendar";
+  }
+
+  if (toolName === "mirror_show_weather") {
+    return "weather";
+  }
+
+  if (toolName === "mirror_show_sensors") {
+    return "sensors";
+  }
+
+  if (toolName === "media_open_youtube") {
+    return "youtube";
+  }
+
+  return "";
+}
+
 function buildRefreshSignalsFallback() {
   return {
     weatherRequestedAt: "",
@@ -782,6 +817,12 @@ export default function Dashboard() {
   });
   const [plannerPlans, setPlannerPlans] = useState([]);
   const [mirrorAlarm, setMirrorAlarm] = useState(null);
+  const [voiceState, setVoiceState] = useState({
+    status: "idle",
+    errorMessage: "",
+    wakeRecognitionSupported: false,
+    shortcutLabel: "Ctrl+Shift+H",
+  });
   const [weatherRefreshKey, setWeatherRefreshKey] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   const weatherRefreshSeenRef = useRef("");
@@ -801,6 +842,16 @@ export default function Dashboard() {
   const mediaHistoryRef = useRef(initialMediaHistory);
   const mediaHistoryIndexRef = useRef(Math.max(initialMediaHistory.length - 1, -1));
   const lastNowPlayingKeyRef = useRef("");
+  const voiceClientRef = useRef(null);
+  const voiceContextRef = useRef({
+    userId: "mirror-local",
+    accountName: "Friend",
+  });
+  const weatherCardRef = useRef(null);
+  const sensorsCardRef = useRef(null);
+  const todayCardRef = useRef(null);
+  const nowPlayingCardRef = useRef(null);
+  const calendarCardRef = useRef(null);
   const calendar = useMemo(
     () => buildCalendarModel(calendarMonthDate, calendarItemsByDate, selectedCalendarDate),
     [calendarItemsByDate, calendarMonthDate, selectedCalendarDate]
@@ -1350,6 +1401,58 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    voiceContextRef.current = {
+      userId: String(profile.accountId || "").trim() || "mirror-local",
+      accountName: profile.accountName || "Friend",
+    };
+  }, [profile.accountId, profile.accountName]);
+
+  useEffect(() => {
+    const voiceClient = createHaloVoiceClient({
+      apiBaseUrl,
+      apiKey: runtimeApiKey,
+      getUserContext: () => voiceContextRef.current,
+    });
+
+    voiceClientRef.current = voiceClient;
+    const unsubscribe = voiceClient.subscribe(setVoiceState);
+    voiceClient.start();
+
+    return () => {
+      unsubscribe();
+      voiceClient.stop();
+      voiceClientRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleVoiceTool = (event) => {
+      const screenName = resolveVoiceScreenName(event?.detail);
+      if (!screenName) {
+        return;
+      }
+
+      const cardMap = {
+        weather: weatherCardRef,
+        sensors: sensorsCardRef,
+        today: todayCardRef,
+        youtube: nowPlayingCardRef,
+        calendar: calendarCardRef,
+      };
+      const targetRef = cardMap[screenName];
+      targetRef?.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    };
+
+    window.addEventListener("halo:voice-tool", handleVoiceTool);
+    return () => {
+      window.removeEventListener("halo:voice-tool", handleVoiceTool);
+    };
+  }, []);
+
+  useEffect(() => {
     window.setSensorDataFromJSON = (json) => {
       setSensorData((prev) => normalizeSensorStatePayload(json, prev));
       if (json?.modules || json?.module_visibility || json?.visibility) {
@@ -1406,31 +1509,37 @@ export default function Dashboard() {
         <div className={`middle ${showYoutubeStage ? "middle--youtube-live" : ""}`}>
           {/* ✅ LEFT COL – كل البوكسات */}
           <div className="left-col">
-            <WeatherCard
-              weather={weather}
-              avatar={avatar}
-              advice={advice}
-              disabled={!moduleVisibility.weatherEnabled}
-              weatherRefreshLabel={weatherRefreshLabel}
-              weatherRefreshActive={weatherRefreshActive}
-              mirrorRefreshLabel={mirrorRefreshLabel}
-              mirrorRefreshActive={mirrorRefreshActive}
-              onRefreshLocation={() => {
-                setWeather(buildWeatherFallback());
-                setWeatherRefreshKey((value) => value + 1);
-              }}
-            />
-            <SensorsCard
-              sensorData={sensorData}
-              moduleVisibility={moduleVisibility}
-              refreshLabel={mirrorRefreshLabel}
-              refreshActive={mirrorRefreshActive}
-              gestureCamera={gestureCamera}
-            />
-            <TodayCard
-              todayPlan={todayPlan}
-              disabled={!moduleVisibility.remindersEnabled}
-            />
+            <div ref={weatherCardRef}>
+              <WeatherCard
+                weather={weather}
+                avatar={avatar}
+                advice={advice}
+                disabled={!moduleVisibility.weatherEnabled}
+                weatherRefreshLabel={weatherRefreshLabel}
+                weatherRefreshActive={weatherRefreshActive}
+                mirrorRefreshLabel={mirrorRefreshLabel}
+                mirrorRefreshActive={mirrorRefreshActive}
+                onRefreshLocation={() => {
+                  setWeather(buildWeatherFallback());
+                  setWeatherRefreshKey((value) => value + 1);
+                }}
+              />
+            </div>
+            <div ref={sensorsCardRef}>
+              <SensorsCard
+                sensorData={sensorData}
+                moduleVisibility={moduleVisibility}
+                refreshLabel={mirrorRefreshLabel}
+                refreshActive={mirrorRefreshActive}
+                gestureCamera={gestureCamera}
+              />
+            </div>
+            <div ref={todayCardRef}>
+              <TodayCard
+                todayPlan={todayPlan}
+                disabled={!moduleVisibility.remindersEnabled}
+              />
+            </div>
             <DailyTipCard tip={tip} />
           </div>
 
@@ -1441,19 +1550,37 @@ export default function Dashboard() {
               dateText={dateText}
               disabled={!moduleVisibility.dateEnabled}
             />
-            <NowPlayingCard
-              nowPlaying={nowPlaying}
-              mediaVisibility={moduleVisibility}
-              gestureCommand={gestureCommand}
-            />
-            <CalendarCard
-              calendar={calendar}
-              onSelectDate={setSelectedCalendarDate}
-              disabled={!moduleVisibility.calendarEnabled}
-            />
+            <div ref={nowPlayingCardRef}>
+              <NowPlayingCard
+                nowPlaying={nowPlaying}
+                mediaVisibility={moduleVisibility}
+                gestureCommand={gestureCommand}
+              />
+            </div>
+            <div ref={calendarCardRef}>
+              <CalendarCard
+                calendar={calendar}
+                onSelectDate={setSelectedCalendarDate}
+                disabled={!moduleVisibility.calendarEnabled}
+              />
+            </div>
           </div>
         </div>
       </div>
+
+      <HaloVoiceStatus
+        status={voiceState.status}
+        errorMessage={voiceState.errorMessage}
+        wakeRecognitionSupported={voiceState.wakeRecognitionSupported}
+        shortcutLabel={voiceState.shortcutLabel}
+        voiceEnabled={voiceState.voiceEnabled}
+        onActivate={() => {
+          void voiceClientRef.current?.activate();
+        }}
+        onStop={() => {
+          void voiceClientRef.current?.stopListening();
+        }}
+      />
     </div>
   );
 }
