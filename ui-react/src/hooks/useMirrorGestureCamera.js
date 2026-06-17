@@ -8,14 +8,22 @@ const GESTURE_COOLDOWN_MS = 850;
 const ARM_COOLDOWN_MS = 1300;
 const FIST_HOLD_MS = 320;
 const MAX_HISTORY_MS = 1200;
-const MIN_ACTIVE_POINTS = 4;
-const MIN_DIRECTION_SCORE = 0.055;
-const DIRECTION_MARGIN = 1.02;
+const MIN_ACTIVE_POINTS = 3;
+const DIRECTION_MARGIN = 1.01;
+const REFERENCE_PALM_WIDTH = 0.08;
+const CLOSED_FIST_AVERAGE_DISTANCE_RATIO = 1.13;
+const CLOSED_FIST_MAX_DISTANCE_RATIO = 1.44;
+const GESTURE_HAND_DISTANCE_RATIO = 1.48;
+const MIN_DIRECTION_PALM_WIDTHS = 0.68;
 const MAX_PINCH_HISTORY_MS = 800;
 const PINCH_OPEN_THRESHOLD = 0.82;
 const PINCH_CLOSE_THRESHOLD = 0.34;
 const PINCH_DELTA_THRESHOLD = 0.12;
 const PINCH_PRIORITY_MAX_PALM_TRAVEL = 0.12;
+
+function scaleByPalmWidth(palmWidth, referenceThreshold) {
+  return Math.max((palmWidth || REFERENCE_PALM_WIDTH) * (referenceThreshold / REFERENCE_PALM_WIDTH), 0.001);
+}
 
 let handLandmarkerPromise = null;
 
@@ -30,9 +38,9 @@ async function loadHandLandmarker() {
           },
           runningMode: "VIDEO",
           numHands: 1,
-          minHandDetectionConfidence: 0.6,
-          minHandPresenceConfidence: 0.6,
-          minTrackingConfidence: 0.5,
+          minHandDetectionConfidence: 0.45,
+          minHandPresenceConfidence: 0.45,
+          minTrackingConfidence: 0.35,
         });
       }
     );
@@ -103,19 +111,25 @@ function getPalmWidth(landmarks) {
 }
 
 function isClosedFist(landmarks, palmCenter) {
+  const palmWidth = getPalmWidth(landmarks);
   const distances = getFingerDistances(landmarks, palmCenter);
   const averageDistance = average(distances);
   const maxDistance = Math.max(...distances);
 
-  return averageDistance <= 0.09 && maxDistance <= 0.115;
+  return (
+    averageDistance <= palmWidth * CLOSED_FIST_AVERAGE_DISTANCE_RATIO &&
+    maxDistance <= palmWidth * CLOSED_FIST_MAX_DISTANCE_RATIO
+  );
 }
 
 function isGestureHand(landmarks, palmCenter) {
+  const palmWidth = getPalmWidth(landmarks);
   const distances = getFingerDistances(landmarks, palmCenter);
-  return average(distances) >= 0.118;
+  return average(distances) >= palmWidth * GESTURE_HAND_DISTANCE_RATIO;
 }
 
 function isFingerExtended(landmarks, palmCenter, tipIndex, jointIndex, margin = 0.018) {
+  const palmWidth = getPalmWidth(landmarks);
   const tipDistance = Math.hypot(
     (landmarks[tipIndex]?.x ?? 0) - palmCenter.x,
     (landmarks[tipIndex]?.y ?? 0) - palmCenter.y
@@ -125,10 +139,11 @@ function isFingerExtended(landmarks, palmCenter, tipIndex, jointIndex, margin = 
     (landmarks[jointIndex]?.y ?? 0) - palmCenter.y
   );
 
-  return tipDistance - jointDistance >= margin;
+  return tipDistance - jointDistance >= scaleByPalmWidth(palmWidth, margin);
 }
 
 function isThumbExtended(landmarks, palmCenter) {
+  const palmWidth = getPalmWidth(landmarks);
   const tipDistance = Math.hypot(
     (landmarks[4]?.x ?? 0) - palmCenter.x,
     (landmarks[4]?.y ?? 0) - palmCenter.y
@@ -138,7 +153,7 @@ function isThumbExtended(landmarks, palmCenter) {
     (landmarks[3]?.y ?? 0) - palmCenter.y
   );
 
-  return tipDistance - jointDistance >= 0.01;
+  return tipDistance - jointDistance >= scaleByPalmWidth(palmWidth, 0.01);
 }
 
 function isPinchControlHand(landmarks, palmCenter, pinchRatio) {
@@ -172,6 +187,9 @@ function detectSwipe(points) {
   const baselineSize = Math.min(3, activePoints.length);
   const start = averagePoint(activePoints.slice(0, baselineSize));
   const end = averagePoint(activePoints.slice(-baselineSize));
+  const averagePalmWidth =
+    activePoints.reduce((total, point) => total + Math.max(point.scale || 0, 0), 0) /
+      activePoints.length || REFERENCE_PALM_WIDTH;
 
   const moveRight = Math.max(...activePoints.map((point) => start.x - point.x), 0);
   const moveLeft = Math.max(...activePoints.map((point) => point.x - start.x), 0);
@@ -202,8 +220,9 @@ function detectSwipe(points) {
 
   const best = scores[0];
   const second = scores[1];
+  const minimumDirectionScore = Math.max(averagePalmWidth * MIN_DIRECTION_PALM_WIDTHS, 0.018);
 
-  if (!best || best.score < MIN_DIRECTION_SCORE) {
+  if (!best || best.score < minimumDirectionScore) {
     return null;
   }
 
@@ -394,8 +413,8 @@ export default function useMirrorGestureCamera({ enabled, onGestureDetected }) {
           audio: false,
           video: {
             facingMode: "user",
-            width: { ideal: 640 },
-            height: { ideal: 360 },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
           },
         });
 
@@ -481,6 +500,7 @@ export default function useMirrorGestureCamera({ enabled, onGestureDetected }) {
             history.push({
               x: palmCenter.x,
               y: palmCenter.y,
+              scale: getPalmWidth(landmarks),
               t: now,
               active: true,
             });

@@ -18,6 +18,14 @@ const SPOTIFY_SCOPES = [
 
 let spotifySdkPromise = null;
 
+async function activateSpotifyPlayerElement(player) {
+  try {
+    await player?.activateElement?.();
+  } catch {
+    // Best-effort only. Some browsers ignore this until a user gesture happens.
+  }
+}
+
 function getRedirectUri() {
   if (SPOTIFY_REDIRECT_URI) {
     return SPOTIFY_REDIRECT_URI;
@@ -425,17 +433,23 @@ export default function useSpotifyMirrorPlayer({ enabled, trackUrl, gestureComma
             error: "",
           }));
 
+          void activateSpotifyPlayerElement(player);
+
           if (!activationBoundRef.current) {
             const activate = () => {
-              player.activateElement?.();
+              void activateSpotifyPlayerElement(player);
               window.removeEventListener("click", activate);
               window.removeEventListener("touchstart", activate);
               window.removeEventListener("keydown", activate);
+              window.removeEventListener("pointerdown", activate);
+              window.removeEventListener("mousedown", activate);
               activationBoundRef.current = false;
             };
             window.addEventListener("click", activate, { once: true });
             window.addEventListener("touchstart", activate, { once: true });
             window.addEventListener("keydown", activate, { once: true });
+            window.addEventListener("pointerdown", activate, { once: true });
+            window.addEventListener("mousedown", activate, { once: true });
             activationBoundRef.current = true;
             removeActivation = activate;
           }
@@ -534,6 +548,8 @@ export default function useSpotifyMirrorPlayer({ enabled, trackUrl, gestureComma
         window.removeEventListener("click", removeActivation);
         window.removeEventListener("touchstart", removeActivation);
         window.removeEventListener("keydown", removeActivation);
+        window.removeEventListener("pointerdown", removeActivation);
+        window.removeEventListener("mousedown", removeActivation);
       }
       playerRef.current?.disconnect?.();
       playerRef.current = null;
@@ -562,6 +578,7 @@ export default function useSpotifyMirrorPlayer({ enabled, trackUrl, gestureComma
         }
 
         setLastRequestedUri(spotifyUri);
+        await activateSpotifyPlayerElement(playerRef.current);
         const device = await waitForSpotifyDevice(tokens.accessToken, deviceIdRef.current);
         if (!device) {
           throw new Error("Spotify mirror device is not available yet.");
@@ -613,6 +630,7 @@ export default function useSpotifyMirrorPlayer({ enabled, trackUrl, gestureComma
               return;
             }
             setLastRequestedUri(nextUri);
+            await activateSpotifyPlayerElement(playerRef.current);
             const device = await waitForSpotifyDevice(tokens.accessToken, deviceIdRef.current);
             if (!device) {
               throw new Error("Spotify mirror device is not available yet.");

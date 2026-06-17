@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import ModuleDisabledState from "./ModuleDisabledState";
 import { buildSpotifyEmbedUrl } from "../utils/mediaEmbed";
+import useSpotifyMirrorPlayer from "../hooks/useSpotifyMirrorPlayer";
 
 function formatSource(source) {
   const sourceLabels = {
@@ -24,6 +25,34 @@ function formatSeconds(totalSeconds) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+async function attemptVideoAutoplay(video, preferredVolume) {
+  if (!video) {
+    return false;
+  }
+
+  const safeVolume = Math.min(Math.max(preferredVolume, 0), 1);
+
+  try {
+    video.muted = false;
+    video.volume = safeVolume;
+    await video.play();
+    return true;
+  } catch {
+    try {
+      video.muted = true;
+      video.volume = safeVolume;
+      await video.play();
+      window.setTimeout(() => {
+        video.muted = false;
+        video.volume = safeVolume;
+      }, 120);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
 export default function NowPlayingCard({
   nowPlaying,
   mediaVisibility,
@@ -45,6 +74,11 @@ export default function NowPlayingCard({
   const spotifyEnabled = mediaVisibility?.spotifyEnabled ?? true;
   const youtubeEnabled = mediaVisibility?.youtubeEnabled ?? true;
   const currentSource = String(nowPlaying?.source || "other").toLowerCase();
+  const spotifyMirror = useSpotifyMirrorPlayer({
+    enabled: spotifyEnabled,
+    trackUrl: currentSource === "spotify" ? nowPlaying?.trackUrl || "" : "",
+    gestureCommand,
+  });
   const disabled =
     (!spotifyEnabled && !youtubeEnabled) ||
     (currentSource === "spotify" && !spotifyEnabled) ||
@@ -79,6 +113,13 @@ export default function NowPlayingCard({
     currentSource === "spotify" ? buildSpotifyEmbedUrl(nowPlaying?.trackUrl || "") : "";
   const showYoutubeStage = Boolean(youtubeStreamUrl && !disabled);
   const showSpotifyStage = Boolean(spotifyEmbedUrl && !disabled);
+  const spotifyConnectionNeeded =
+    currentSource === "spotify" &&
+    spotifyEnabled &&
+    !spotifyMirror.authState.missingClientId &&
+    !spotifyMirror.authState.connected;
+  const spotifyMirrorError =
+    currentSource === "spotify" ? spotifyMirror.authState.error || "" : "";
   const playbackBlocked = blockedStreamUrl === youtubeStreamUrl;
   const playbackError =
     playbackErrorState.streamUrl === youtubeStreamUrl
@@ -119,15 +160,17 @@ export default function NowPlayingCard({
     }
 
     const video = videoRef.current;
-    video.muted = false;
-    video.volume = preferredVolumeRef.current;
-    const playPromise = video.play();
+    setBlockedStreamUrl("");
+    setPlaybackErrorState({
+      streamUrl: "",
+      message: "",
+    });
 
-    if (playPromise?.catch) {
-      playPromise.catch(() => {
+    void attemptVideoAutoplay(video, preferredVolumeRef.current).then((started) => {
+      if (!started) {
         setBlockedStreamUrl(youtubeStreamUrl);
-      });
-    }
+      }
+    });
   }, [showYoutubeStage, youtubeStreamUrl]);
 
   useEffect(() => {
@@ -174,13 +217,11 @@ export default function NowPlayingCard({
           : Math.min(Math.max(0, nextTime), videoDuration);
       video.volume = preservedVolume;
       preferredVolumeRef.current = preservedVolume;
-
-      const playPromise = video.play();
-      if (playPromise?.catch) {
-        playPromise.catch(() => {
+      void attemptVideoAutoplay(video, preservedVolume).then((started) => {
+        if (!started) {
           setBlockedStreamUrl(youtubeStreamUrl);
-        });
-      }
+        }
+      });
     }
   }, [gestureCommand, showSpotifyStage, showYoutubeStage, youtubeStreamUrl]);
 
@@ -294,6 +335,7 @@ export default function NowPlayingCard({
         <div className="music-video-shell">
           <div className="music-video-stage">
             <video
+              key={youtubeStreamUrl}
               ref={videoRef}
               className="music-video-frame"
               src={youtubeStreamUrl}
@@ -307,13 +349,14 @@ export default function NowPlayingCard({
                   return;
                 }
 
-                videoRef.current.volume = preferredVolumeRef.current;
-                const playPromise = videoRef.current.play();
-                if (playPromise?.catch) {
-                  playPromise.catch(() => {
+                void attemptVideoAutoplay(
+                  videoRef.current,
+                  preferredVolumeRef.current
+                ).then((started) => {
+                  if (!started) {
                     setBlockedStreamUrl(youtubeStreamUrl);
-                  });
-                }
+                  }
+                });
               }}
               onError={() => {
                 setPlaybackErrorState({
@@ -411,11 +454,34 @@ export default function NowPlayingCard({
 
               <div className="music-artist-row">
                 <div className="music-artist" id="music-artist">
-                  {nowPlaying?.artist ||
-                    "Spotify is loaded on the mirror. If Chrome allows autoplay, the song should start on its own."}
+                  {spotifyMirrorError ||
+                    nowPlaying?.artist ||
+                    "Spotify is loaded on the mirror and should start automatically."}
                 </div>
                 <div className="music-video-tag">Audio playback</div>
               </div>
+
+              {spotifyConnectionNeeded ? (
+                <button
+                  type="button"
+                  className="music-video-overlay"
+                  style={{
+                    position: "static",
+                    inset: "auto",
+                    marginTop: "14px",
+                    alignSelf: "flex-start",
+                    width: "auto",
+                    height: "auto",
+                    padding: "10px 18px",
+                    fontSize: "0.82rem",
+                  }}
+                  onClick={() => {
+                    void spotifyMirror.connectSpotify();
+                  }}
+                >
+                  Connect Spotify Once
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
