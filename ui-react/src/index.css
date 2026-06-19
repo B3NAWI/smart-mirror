@@ -224,95 +224,103 @@ body {
   html,
   body,
   #root {
-    height: 100vh;
+    height: 100dvh;
     overflow: hidden;
   }
 
+  #root {
+    position: relative;
+  }
+
   .shell {
-    --halo-fit-scale: 0.78;
-    width: calc(100% / var(--halo-fit-scale));
-    height: calc(100vh / var(--halo-fit-scale));
-    min-height: calc(100vh / var(--halo-fit-scale));
-    max-width: calc(960px / var(--halo-fit-scale));
-    padding: 14px 8px 18px;
-    transform: scale(var(--halo-fit-scale));
+    --halo-fit-scale: 0.65;
+    position: absolute;
+    top: 9px;
+    left: 50%;
+    width: calc((100dvw - 18px) / var(--halo-fit-scale));
+    height: calc((100dvh - 18px) / var(--halo-fit-scale));
+    min-height: calc((100dvh - 18px) / var(--halo-fit-scale));
+    max-width: none;
+    margin: 0;
+    padding: 12px 8px 14px;
+    transform: translateX(-50%) scale(var(--halo-fit-scale));
     transform-origin: top center;
   }
 
   .top-bar {
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
 
   .halo-title {
-    font-size: 38px;
+    font-size: 35px;
   }
 
   .subtitle {
-    font-size: 11px;
+    font-size: 10px;
   }
 
   .greeting-block {
-    margin-top: 2px;
-    margin-bottom: 4px;
+    margin-top: 1px;
+    margin-bottom: 3px;
   }
 
   .greeting-line {
-    font-size: 16px;
+    font-size: 15px;
   }
 
   .mirror-alarm-banner {
-    margin-bottom: 8px;
-    padding: 10px 14px;
+    margin-bottom: 7px;
+    padding: 9px 12px;
   }
 
   .mirror-alarm-title {
-    font-size: 16px;
+    font-size: 15px;
   }
 
   .mirror-alarm-detail {
-    font-size: 12px;
+    font-size: 11px;
   }
 
   .middle {
     flex: 1;
     min-height: 0;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 10px;
-    padding-top: 4px;
+    gap: 8px;
+    padding-top: 3px;
     padding-bottom: 0;
   }
 
   .middle--youtube-live {
     grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
-    gap: 10px;
+    gap: 8px;
   }
 
   .left-col,
   .right-col {
-    gap: 8px;
+    gap: 7px;
     padding-left: 0;
     padding-right: 0;
   }
 
   .clock-card {
-    padding: 14px 16px 10px;
+    padding: 12px 14px 9px;
   }
 
   .clock {
-    font-size: 56px;
+    font-size: 52px;
   }
 
   .date {
-    font-size: 14px;
+    font-size: 13px;
   }
 
   .card {
-    padding: 11px 14px 10px;
+    padding: 10px 12px 9px;
     border-radius: 16px;
   }
 
   .card-title {
-    font-size: 14px;
+    font-size: 13px;
   }
 
   .chip,
@@ -337,7 +345,7 @@ body {
   .module-disabled-copy,
   .weather-advice,
   .calendar-agenda-empty {
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.45;
   }
 
@@ -346,18 +354,18 @@ body {
   .music-shell,
   .music-video-shell,
   .calendar-hero {
-    gap: 10px;
+    gap: 8px;
   }
 
   .weather-temp {
-    font-size: 26px;
+    font-size: 24px;
   }
 
   .weather-desc,
   .quote-text,
   .music-artist,
   .calendar-agenda-item-title {
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.4;
   }
 
@@ -367,12 +375,12 @@ body {
   .music-progress-meta,
   .calendar-agenda-time,
   .calendar-agenda-item-detail {
-    font-size: 10px;
+    font-size: 9px;
   }
 
   .weather-avatar {
-    width: 48px;
-    font-size: 28px;
+    width: 44px;
+    font-size: 26px;
   }
 
   .weather-location-button,
@@ -383,34 +391,34 @@ body {
   }
 
   .sensor-overview {
-    margin-top: 6px;
-    gap: 10px;
-    padding: 8px 10px;
+    margin-top: 5px;
+    gap: 8px;
+    padding: 7px 9px;
   }
 
   .sensor-overview-text {
-    font-size: 11px;
+    font-size: 10px;
   }
 
   .sensor-grid,
   .sensor-status-grid {
-    margin-top: 8px;
-    gap: 8px;
+    margin-top: 7px;
+    gap: 7px;
   }
 
   .sensor-panel,
   .sensor-status-card {
-    padding: 10px;
+    padding: 9px;
   }
 
   .sensor-panel-value {
-    font-size: 22px;
+    font-size: 20px;
   }
 
   .sensor-panel-note,
   .sensor-status-copy,
   .sensor-gesture-hint {
-    font-size: 11px;
+    font-size: 10px;
   }
 
   .quote-mark {
@@ -427,19 +435,19 @@ body {
   }
 
   .tip-orb {
-    width: 52px;
-    height: 52px;
-    flex-basis: 52px;
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
   }
 
   .tip-orb-core {
-    font-size: 20px;
+    font-size: 18px;
   }
 
   .music-orb {
-    width: 58px;
-    height: 58px;
-    flex-basis: 58px;
+    width: 54px;
+    height: 54px;
+    flex-basis: 54px;
     border-radius: 18px;
   }
 
@@ -453,12 +461,12 @@ body {
   }
 
   .music-track {
-    margin-top: 6px;
-    font-size: 18px;
+    margin-top: 5px;
+    font-size: 16px;
   }
 
   .music-progress-block {
-    margin-top: 10px;
+    margin-top: 8px;
   }
 
   .music-progress-bar {
@@ -466,56 +474,187 @@ body {
   }
 
   .music-video-pulse {
-    width: 52px;
-    height: 52px;
-    flex-basis: 52px;
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
     border-radius: 16px;
   }
 
   .music-video-overlay {
-    padding: 9px 14px;
-    font-size: 11px;
+    padding: 8px 12px;
+    font-size: 10px;
   }
 
   .calendar-month {
-    font-size: 20px;
+    font-size: 18px;
   }
 
   .calendar-subtitle {
-    font-size: 11px;
+    font-size: 10px;
     line-height: 1.35;
   }
 
   .calendar-today-badge,
   .calendar-frame,
   .calendar-agenda-panel {
-    padding: 10px 12px;
+    padding: 9px 10px;
   }
 
   .calendar-today-number {
-    font-size: 28px;
+    font-size: 24px;
   }
 
   .calendar-grid {
-    gap: 6px;
+    gap: 5px;
   }
 
   .cal-cell {
-    min-height: 34px;
+    min-height: 30px;
   }
 
   .cal-header {
-    min-height: 20px;
+    min-height: 18px;
     font-size: 10px;
   }
 
   .cal-day {
-    font-size: 11px;
+    font-size: 10px;
   }
 
   .calendar-agenda-item {
-    gap: 10px;
-    padding: 8px 10px;
+    gap: 8px;
+    padding: 7px 9px;
+  }
+
+  .sensor-panel {
+    padding: 8px;
+  }
+
+  .sensor-panel-head {
+    gap: 8px;
+  }
+
+  .sensor-orb {
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+    border-radius: 12px;
+    font-size: 12px;
+  }
+
+  .sensor-panel-label,
+  .sensor-status-label {
+    font-size: 10px;
+  }
+
+  .sensor-panel-note {
+    margin-top: 2px;
+    font-size: 10px;
+  }
+
+  .sensor-panel-value {
+    margin-top: 10px;
+    font-size: 18px;
+  }
+
+  .sensor-meter {
+    margin-top: 8px;
+    height: 6px;
+  }
+
+  .sensor-status-body,
+  .sensor-gesture-row {
+    margin-top: 8px;
+    gap: 8px;
+  }
+
+  .sensor-wave {
+    height: 26px;
+  }
+
+  .sensor-wave span:nth-child(1) {
+    height: 12px;
+  }
+
+  .sensor-wave span:nth-child(2) {
+    height: 22px;
+  }
+
+  .sensor-wave span:nth-child(3) {
+    height: 16px;
+  }
+
+  .sensor-gesture-shape {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+    border-radius: 12px;
+  }
+
+  .gesture-arrow {
+    width: 16px;
+    height: 16px;
+    border-top-width: 2px;
+    border-right-width: 2px;
+  }
+
+  .sensor-gesture-value {
+    font-size: 14px;
+  }
+
+  .sensor-gesture-preview-shell {
+    margin-top: 8px;
+    gap: 6px;
+  }
+
+  .sensor-gesture-preview {
+    aspect-ratio: 16 / 5;
+    max-height: 86px;
+    border-radius: 14px;
+  }
+
+  .event-list {
+    margin-top: 4px;
+    gap: 4px;
+  }
+
+  .event {
+    padding: 5px 7px;
+    gap: 1px;
+  }
+
+  .event-time,
+  .event-status {
+    font-size: 9px;
+  }
+
+  .event-title {
+    font-size: 12px;
+  }
+
+  .tip-shell {
+    margin-top: 4px;
+    gap: 8px;
+  }
+
+  .quote-mark {
+    top: -6px;
+    font-size: 32px;
+  }
+
+  .quote-text {
+    padding-top: 6px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .quote-footer {
+    margin-top: 8px;
+    gap: 8px;
+  }
+
+  .quote-author {
+    font-size: 9px;
   }
 
   .halo-voice-status {
