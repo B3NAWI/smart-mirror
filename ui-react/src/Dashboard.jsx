@@ -842,6 +842,8 @@ export default function Dashboard() {
   const mediaHistoryRef = useRef(initialMediaHistory);
   const mediaHistoryIndexRef = useRef(Math.max(initialMediaHistory.length - 1, -1));
   const lastNowPlayingKeyRef = useRef("");
+  const nowPlayingTransitionActiveRef = useRef(false);
+  const nowPlayingTransitionVersionRef = useRef(0);
   const voiceClientRef = useRef(null);
   const voiceContextRef = useRef({
     userId: "mirror-local",
@@ -874,7 +876,7 @@ export default function Dashboard() {
 
   const publishNowPlayingState = async (payload) => {
     try {
-      await fetch(`${apiBaseUrl}/api/now-playing`, {
+      const response = await fetch(`${apiBaseUrl}/api/now-playing`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -882,8 +884,13 @@ export default function Dashboard() {
         },
         body: JSON.stringify(toNowPlayingApiPayload(payload)),
       });
+      if (!response.ok) {
+        throw new Error("Now playing sync failed");
+      }
+      return await response.json();
     } catch {
       // Keep local playback responsive if the mirror state sync misses one update.
+      return null;
     }
   };
 
@@ -924,6 +931,18 @@ export default function Dashboard() {
     return normalized;
   };
 
+  const beginNowPlayingTransition = () => {
+    nowPlayingTransitionVersionRef.current += 1;
+    nowPlayingTransitionActiveRef.current = true;
+    return nowPlayingTransitionVersionRef.current;
+  };
+
+  const finishNowPlayingTransition = (version) => {
+    if (nowPlayingTransitionVersionRef.current === version) {
+      nowPlayingTransitionActiveRef.current = false;
+    }
+  };
+
   const queueGestureCommand = (action, extra = {}) => {
     setGestureCommand({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -937,6 +956,8 @@ export default function Dashboard() {
     if (source === "spotify") {
       return;
     }
+
+    const transitionVersion = beginNowPlayingTransition();
 
     const history = mediaHistoryRef.current.filter(
       (entry) => String(entry?.source || "").toLowerCase() === source
@@ -957,6 +978,7 @@ export default function Dashboard() {
         gesture !== "right" ||
         !canMirrorPlayFromGesture(nowPlaying)
       ) {
+        finishNowPlayingTransition(transitionVersion);
         return;
       }
 
@@ -986,23 +1008,40 @@ export default function Dashboard() {
         });
       } catch {
         // If no recommendation is available, leave the current video playing.
+      } finally {
+        finishNowPlayingTransition(transitionVersion);
       }
       return;
     }
 
-    mediaHistoryIndexRef.current = targetIndex;
-    lastNowPlayingKeyRef.current = buildNowPlayingKey(targetItem);
-    setNowPlaying(targetItem);
-    saveStoredMediaHistory(mediaHistoryRef.current);
-    queueGestureCommand(
-      gesture === "left" ? "history_previous" : "history_next",
-      {
-        title: targetItem.title || "",
-        trackUrl: targetItem.trackUrl || "",
-        source: targetItem.source || "",
-      }
-    );
-    await publishNowPlayingState(targetItem);
+    const targetPlaybackItem = {
+      ...targetItem,
+      isPlaying: true,
+      progressSeconds: 0,
+      effectiveProgressSeconds: 0,
+    };
+
+    try {
+      const syncedPayload = await publishNowPlayingState(targetPlaybackItem);
+      const nextItem = rememberNowPlaying(syncedPayload || targetPlaybackItem);
+      const nextKey = buildNowPlayingKey(nextItem);
+      const nextIndex = mediaHistoryRef.current.findIndex(
+        (entry) => buildNowPlayingKey(entry) === nextKey
+      );
+
+      mediaHistoryIndexRef.current = nextIndex >= 0 ? nextIndex : targetIndex;
+      saveStoredMediaHistory(mediaHistoryRef.current);
+      queueGestureCommand(
+        gesture === "left" ? "history_previous" : "history_next",
+        {
+          title: nextItem.title || "",
+          trackUrl: nextItem.trackUrl || "",
+          source: nextItem.source || "",
+        }
+      );
+    } finally {
+      finishNowPlayingTransition(transitionVersion);
+    }
   };
 
   const triggerGestureAction = (gesture) => {
@@ -1344,6 +1383,12 @@ export default function Dashboard() {
     let cancelled = false;
 
     const loadNowPlaying = async () => {
+      if (nowPlayingTransitionActiveRef.current) {
+        return;
+      }
+
+      const transitionVersionAtRequest = nowPlayingTransitionVersionRef.current;
+
       try {
         const response = await fetch(`${apiBaseUrl}/api/now-playing`);
         if (!response.ok) {
@@ -1351,11 +1396,19 @@ export default function Dashboard() {
         }
 
         const payload = await response.json();
-        if (!cancelled) {
+        if (
+          !cancelled &&
+          !nowPlayingTransitionActiveRef.current &&
+          transitionVersionAtRequest === nowPlayingTransitionVersionRef.current
+        ) {
           rememberNowPlaying(payload);
         }
       } catch {
-        if (!cancelled) {
+        if (
+          !cancelled &&
+          !nowPlayingTransitionActiveRef.current &&
+          transitionVersionAtRequest === nowPlayingTransitionVersionRef.current
+        ) {
           setNowPlaying((current) => ({
             ...current,
             isPlaying: false,

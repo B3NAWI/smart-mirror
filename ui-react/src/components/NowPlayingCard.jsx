@@ -53,6 +53,25 @@ async function attemptVideoAutoplay(video, preferredVolume) {
   }
 }
 
+function teardownVideoElement(video) {
+  if (!video) {
+    return;
+  }
+
+  try {
+    video.pause();
+  } catch {
+    // Best-effort only.
+  }
+
+  try {
+    video.removeAttribute("src");
+    video.load();
+  } catch {
+    // Best-effort only.
+  }
+}
+
 export default function NowPlayingCard({
   nowPlaying,
   mediaVisibility,
@@ -153,6 +172,14 @@ export default function NowPlayingCard({
       });
     }, 0);
   };
+
+  useEffect(() => {
+    const activeVideo = videoRef.current;
+
+    return () => {
+      teardownVideoElement(activeVideo);
+    };
+  }, [currentSource, youtubeStreamUrl]);
 
   useEffect(() => {
     if (!showYoutubeStage || !videoRef.current) {
