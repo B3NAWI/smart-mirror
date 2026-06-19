@@ -221,26 +221,308 @@ body {
 }
 
 @media (orientation: portrait) and (min-width: 700px) {
+  html,
+  body,
+  #root {
+    height: 100vh;
+    overflow: hidden;
+  }
+
   .shell {
-    max-width: 980px;
-    padding: 20px 12px 76px;
+    --halo-fit-scale: 0.78;
+    width: calc(100% / var(--halo-fit-scale));
+    height: calc(100vh / var(--halo-fit-scale));
+    min-height: calc(100vh / var(--halo-fit-scale));
+    max-width: calc(960px / var(--halo-fit-scale));
+    padding: 14px 8px 18px;
+    transform: scale(var(--halo-fit-scale));
+    transform-origin: top center;
+  }
+
+  .top-bar {
+    margin-bottom: 4px;
+  }
+
+  .halo-title {
+    font-size: 38px;
+  }
+
+  .subtitle {
+    font-size: 11px;
+  }
+
+  .greeting-block {
+    margin-top: 2px;
+    margin-bottom: 4px;
+  }
+
+  .greeting-line {
+    font-size: 16px;
+  }
+
+  .mirror-alarm-banner {
+    margin-bottom: 8px;
+    padding: 10px 14px;
+  }
+
+  .mirror-alarm-title {
+    font-size: 16px;
+  }
+
+  .mirror-alarm-detail {
+    font-size: 12px;
   }
 
   .middle {
+    flex: 1;
+    min-height: 0;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 12px;
+    gap: 10px;
+    padding-top: 4px;
+    padding-bottom: 0;
   }
 
   .middle--youtube-live {
     grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
-    gap: 12px;
+    gap: 10px;
   }
 
   .left-col,
   .right-col {
-    gap: 10px;
+    gap: 8px;
     padding-left: 0;
     padding-right: 0;
+  }
+
+  .clock-card {
+    padding: 14px 16px 10px;
+  }
+
+  .clock {
+    font-size: 56px;
+  }
+
+  .date {
+    font-size: 14px;
+  }
+
+  .card {
+    padding: 11px 14px 10px;
+    border-radius: 16px;
+  }
+
+  .card-title {
+    font-size: 14px;
+  }
+
+  .chip,
+  .module-disabled-badge,
+  .music-source,
+  .music-video-tag,
+  .calendar-agenda-chip,
+  .halo-voice-status__primary,
+  .halo-voice-status__stop {
+    font-size: 10px;
+  }
+
+  .module-disabled {
+    padding: 12px;
+  }
+
+  .module-disabled-title {
+    margin-top: 8px;
+    font-size: 16px;
+  }
+
+  .module-disabled-copy,
+  .weather-advice,
+  .calendar-agenda-empty {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .weather-row,
+  .tip-shell,
+  .music-shell,
+  .music-video-shell,
+  .calendar-hero {
+    gap: 10px;
+  }
+
+  .weather-temp {
+    font-size: 26px;
+  }
+
+  .weather-desc,
+  .quote-text,
+  .music-artist,
+  .calendar-agenda-item-title {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .weather-location,
+  .weather-region,
+  .music-status,
+  .music-progress-meta,
+  .calendar-agenda-time,
+  .calendar-agenda-item-detail {
+    font-size: 10px;
+  }
+
+  .weather-avatar {
+    width: 48px;
+    font-size: 28px;
+  }
+
+  .weather-location-button,
+  .sync-pill,
+  .sensor-live-pill {
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+
+  .sensor-overview {
+    margin-top: 6px;
+    gap: 10px;
+    padding: 8px 10px;
+  }
+
+  .sensor-overview-text {
+    font-size: 11px;
+  }
+
+  .sensor-grid,
+  .sensor-status-grid {
+    margin-top: 8px;
+    gap: 8px;
+  }
+
+  .sensor-panel,
+  .sensor-status-card {
+    padding: 10px;
+  }
+
+  .sensor-panel-value {
+    font-size: 22px;
+  }
+
+  .sensor-panel-note,
+  .sensor-status-copy,
+  .sensor-gesture-hint {
+    font-size: 11px;
+  }
+
+  .quote-mark {
+    top: -8px;
+    font-size: 42px;
+  }
+
+  .quote-text {
+    padding-top: 10px;
+  }
+
+  .quote-footer {
+    margin-top: 10px;
+  }
+
+  .tip-orb {
+    width: 52px;
+    height: 52px;
+    flex-basis: 52px;
+  }
+
+  .tip-orb-core {
+    font-size: 20px;
+  }
+
+  .music-orb {
+    width: 58px;
+    height: 58px;
+    flex-basis: 58px;
+    border-radius: 18px;
+  }
+
+  .music-wave {
+    height: 22px;
+    gap: 4px;
+  }
+
+  .music-wave span {
+    width: 6px;
+  }
+
+  .music-track {
+    margin-top: 6px;
+    font-size: 18px;
+  }
+
+  .music-progress-block {
+    margin-top: 10px;
+  }
+
+  .music-progress-bar {
+    height: 7px;
+  }
+
+  .music-video-pulse {
+    width: 52px;
+    height: 52px;
+    flex-basis: 52px;
+    border-radius: 16px;
+  }
+
+  .music-video-overlay {
+    padding: 9px 14px;
+    font-size: 11px;
+  }
+
+  .calendar-month {
+    font-size: 20px;
+  }
+
+  .calendar-subtitle {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .calendar-today-badge,
+  .calendar-frame,
+  .calendar-agenda-panel {
+    padding: 10px 12px;
+  }
+
+  .calendar-today-number {
+    font-size: 28px;
+  }
+
+  .calendar-grid {
+    gap: 6px;
+  }
+
+  .cal-cell {
+    min-height: 34px;
+  }
+
+  .cal-header {
+    min-height: 20px;
+    font-size: 10px;
+  }
+
+  .cal-day {
+    font-size: 11px;
+  }
+
+  .calendar-agenda-item {
+    gap: 10px;
+    padding: 8px 10px;
+  }
+
+  .halo-voice-status {
+    right: 12px;
+    bottom: 12px;
+    gap: 6px;
+    padding: 7px 8px;
   }
 }
 
