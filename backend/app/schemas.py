@@ -482,6 +482,7 @@ class PlannerPlanRead(BaseModel):
 
 class MirrorModuleSettingsBase(BaseModel):
     weather_enabled: bool = True
+    news_enabled: bool = True
     date_enabled: bool = True
     reminders_enabled: bool = True
     calendar_enabled: bool = True
@@ -495,6 +496,7 @@ class MirrorModuleSettingsBase(BaseModel):
 
 class MirrorModuleSettingsUpdate(BaseModel):
     weather_enabled: Optional[bool] = None
+    news_enabled: Optional[bool] = None
     date_enabled: Optional[bool] = None
     reminders_enabled: Optional[bool] = None
     calendar_enabled: Optional[bool] = None
@@ -576,6 +578,36 @@ class MirrorRefreshRequest(BaseModel):
     mirror_data: bool = False
 
 
+class MirrorCommandRequest(BaseModel):
+    command: Optional[str] = Field(default=None, max_length=80)
+    widget: Optional[str] = Field(default=None, max_length=32)
+    action: Optional[str] = Field(default=None, max_length=16)
+
+    @model_validator(mode="after")
+    def validate_command_or_widget_action(self):
+        has_command = bool(_clean_optional_text(self.command))
+        has_widget_action = bool(_clean_optional_text(self.widget)) and bool(
+            _clean_optional_text(self.action)
+        )
+        if not has_command and not has_widget_action:
+            raise ValueError("Provide either command or widget/action.")
+        return self
+
+
+class NewsHeadlineRead(BaseModel):
+    id: str
+    title: str
+    link: Optional[str] = None
+    source: str
+    published_at: Optional[str] = None
+
+
+class NewsHeadlinesResponse(BaseModel):
+    headlines: List[NewsHeadlineRead]
+    feed_url: str
+    fetched_at: datetime
+
+
 class HaloCommandRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -605,6 +637,36 @@ class HaloCommandResponse(BaseModel):
     reply: str
     tool: str
     data: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AssistantTextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    user_id: Optional[str] = None
+    account_name: Optional[str] = None
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        if value is None:
+            raise ValueError("text cannot be empty")
+        cleaned = str(value).strip()
+        if not cleaned:
+            raise ValueError("text cannot be empty")
+        return cleaned
+
+    @field_validator("user_id", "account_name", mode="before")
+    @classmethod
+    def clean_optional_text_fields(cls, value: Optional[str]) -> Optional[str]:
+        return _clean_optional_text(value)
+
+
+class AssistantTextResponse(BaseModel):
+    wake_detected: bool
+    intent: str
+    tool_result: Dict[str, Any] = Field(default_factory=dict)
+    response: str
 
 
 VoiceSessionClient = Literal["mirror", "mobile", "unknown"]

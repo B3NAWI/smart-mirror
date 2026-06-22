@@ -60,6 +60,13 @@ def init_database() -> None:
                             "ADD COLUMN weather_enabled BOOLEAN NOT NULL DEFAULT 1"
                         )
                     )
+                if "news_enabled" not in module_columns:
+                    connection.execute(
+                        text(
+                            "ALTER TABLE mirror_module_settings "
+                            "ADD COLUMN news_enabled BOOLEAN NOT NULL DEFAULT 1"
+                        )
+                    )
                 if "weather_refresh_requested_at" not in module_columns:
                     connection.execute(
                         text(

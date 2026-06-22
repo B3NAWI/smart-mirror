@@ -8,7 +8,10 @@ from .auth import require_api_key
 from .calendar_routes import router as calendar_router
 from .config import HALO_VOICE_ENABLED, OPENAI_API_KEY
 from .database import database_healthcheck, get_db
+from .mirror_commands import get_or_create_module_settings
 from .models import MirrorModuleSettings
+from .mirror_routes import router as mirror_router
+from .news_routes import router as news_router
 from .mqtt_client import get_mqtt_status
 from .schemas import (
     MirrorRefreshRequest,
@@ -26,38 +29,19 @@ from .voice_routes import router as voice_router
 from .weather_routes import router as weather_router
 
 router = APIRouter()
-
-
-def _get_or_create_module_settings(db: Session) -> MirrorModuleSettings:
-    settings = db.query(MirrorModuleSettings).filter(MirrorModuleSettings.id == 1).first()
-    if settings is not None:
-        return settings
-
-    settings = MirrorModuleSettings(id=1)
-    db.add(settings)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        return db.query(MirrorModuleSettings).filter(MirrorModuleSettings.id == 1).first()
-
-    db.refresh(settings)
-    return settings
-
-
 @router.get("/api/state", response_model=MirrorStateResponse)
 def read_state(db: Session = Depends(get_db)):
     return MirrorStateResponse.model_validate(
         {
             **get_state(),
-            "modules": _get_or_create_module_settings(db),
+            "modules": get_or_create_module_settings(db),
         }
     )
 
 
 @router.get("/api/health")
 def read_health(db: Session = Depends(get_db)):
-    modules = _get_or_create_module_settings(db)
+    modules = get_or_create_module_settings(db)
     database_connected = database_healthcheck()
     return {
         "status": "ok" if database_connected else "degraded",
@@ -74,6 +58,7 @@ def read_health(db: Session = Depends(get_db)):
         },
         "modules": {
             "weather_enabled": modules.weather_enabled,
+            "news_enabled": modules.news_enabled,
             "gesture_camera_enabled": modules.gesture_camera_enabled,
         },
         "timestamp": datetime.utcnow().isoformat(),
@@ -82,7 +67,7 @@ def read_health(db: Session = Depends(get_db)):
 
 @router.get("/api/state/modules", response_model=MirrorModuleSettingsRead)
 def read_state_modules(db: Session = Depends(get_db)):
-    return _get_or_create_module_settings(db)
+    return get_or_create_module_settings(db)
 
 
 @router.patch(
@@ -94,7 +79,7 @@ def update_state_modules(
     payload: MirrorModuleSettingsUpdate,
     db: Session = Depends(get_db),
 ):
-    settings = _get_or_create_module_settings(db)
+    settings = get_or_create_module_settings(db)
 
     for field_name, value in payload.model_dump(exclude_unset=True).items():
         setattr(settings, field_name, value)
@@ -120,7 +105,7 @@ def update_runtime_state(
     return MirrorStateResponse.model_validate(
         {
             **get_state(),
-            "modules": _get_or_create_module_settings(db),
+            "modules": get_or_create_module_settings(db),
         }
     )
 
@@ -134,7 +119,7 @@ def signal_state_refresh(
     payload: MirrorRefreshRequest,
     db: Session = Depends(get_db),
 ):
-    settings = _get_or_create_module_settings(db)
+    settings = get_or_create_module_settings(db)
     now = datetime.utcnow()
 
     if payload.weather:
@@ -165,4 +150,6 @@ router.include_router(daily_plan_router)
 router.include_router(planner_router)
 router.include_router(now_playing_router)
 router.include_router(weather_router)
+router.include_router(news_router)
 router.include_router(voice_router)
+router.include_router(mirror_router)

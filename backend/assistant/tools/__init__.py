@@ -1,0 +1,2 @@
+"""Assistant tool architecture namespace."""
+

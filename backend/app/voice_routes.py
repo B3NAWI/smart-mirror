@@ -4,8 +4,14 @@ from time import monotonic
 from typing import Deque, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request as FastAPIRequest, status
-from openai import APIConnectionError, APIStatusError, OpenAI
 from sqlalchemy.orm import Session
+from assistant.command_router import execute_assistant_text_command
+from assistant.realtime_client import (
+    APIConnectionError,
+    APIStatusError,
+    build_realtime_session_payload,
+    create_realtime_client_secret,
+)
 
 from .auth import require_api_key
 from .config import (
@@ -24,6 +30,8 @@ from .config import (
 )
 from .database import get_db
 from .schemas import (
+    AssistantTextRequest,
+    AssistantTextResponse,
     HaloCommandRequest,
     HaloCommandResponse,
     VoiceSessionRequest,
@@ -109,48 +117,9 @@ def _enforce_voice_request_rate_limit(
         bucket.append(now)
 
 
-def _build_realtime_session_payload(payload: VoiceSessionRequest) -> dict:
-    output_voice = payload.voice or DEFAULT_AUDIO_VOICE
-    session_payload = {
-        "type": "realtime",
-        "model": OPENAI_REALTIME_MODEL,
-        "instructions": HALO_VOICE_ASSISTANT_INSTRUCTIONS,
-        "max_output_tokens": HALO_MAX_OUTPUT_TOKENS,
-        "output_modalities": [payload.output_modality],
-        "reasoning": {"effort": HALO_VOICE_REASONING_EFFORT},
-        "truncation": "auto",
-    }
-
-    if payload.output_modality == "audio":
-        session_payload["audio"] = {
-            "input": {
-                "turn_detection": {
-                    "type": "server_vad",
-                    "create_response": True,
-                    "interrupt_response": True,
-                    "idle_timeout_ms": HALO_VOICE_IDLE_TIMEOUT_SECONDS * 1000,
-                    "silence_duration_ms": 700,
-                }
-            },
-            "output": {
-                "voice": output_voice,
-            },
-        }
-
-    return {
-        "expires_after": {
-            "anchor": "created_at",
-            "seconds": HALO_VOICE_SESSION_TIMEOUT_SECONDS,
-        },
-        "session": session_payload,
-    }
-
-
-def _create_realtime_client_secret(payload: dict) -> dict:
-    client = OpenAI(api_key=OPENAI_API_KEY)
-
+def _safe_create_realtime_client_secret(payload: dict) -> dict:
     try:
-        response = client.realtime.client_secrets.create(**payload)
+        response_payload = create_realtime_client_secret(OPENAI_API_KEY, payload)
     except APIStatusError as exc:
         provider_message = None
         if isinstance(exc.body, dict):
@@ -180,21 +149,7 @@ def _create_realtime_client_secret(payload: dict) -> dict:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Unable to reach the voice provider right now.",
         ) from exc
-
-    response_payload = (
-        response.model_dump(exclude_none=True)
-        if hasattr(response, "model_dump")
-        else {
-            "value": response.value,
-            "expires_at": response.expires_at,
-            "session": {},
-        }
-    )
-    return {
-        "value": response_payload.get("value", ""),
-        "expires_at": response_payload.get("expires_at"),
-        "session": response_payload.get("session", {}),
-    }
+    return response_payload
 
 
 @router.post(
@@ -221,8 +176,17 @@ def create_voice_session(
     request_payload = payload or VoiceSessionRequest()
     _enforce_voice_session_rate_limit(request, request_payload.client)
 
-    session_request = _build_realtime_session_payload(request_payload)
-    session_response = _create_realtime_client_secret(session_request)
+    session_request = build_realtime_session_payload(
+        model=OPENAI_REALTIME_MODEL,
+        instructions=HALO_VOICE_ASSISTANT_INSTRUCTIONS,
+        output_modality=request_payload.output_modality,
+        voice=request_payload.voice or DEFAULT_AUDIO_VOICE,
+        max_output_tokens=HALO_MAX_OUTPUT_TOKENS,
+        idle_timeout_seconds=HALO_VOICE_IDLE_TIMEOUT_SECONDS,
+        session_timeout_seconds=HALO_VOICE_SESSION_TIMEOUT_SECONDS,
+        reasoning_effort=HALO_VOICE_REASONING_EFFORT,
+    )
+    session_response = _safe_create_realtime_client_secret(session_request)
 
     secret_value = session_response.get("value")
     expires_at = session_response.get("expires_at")
@@ -318,6 +282,25 @@ def run_voice_tool(
 
 
 @router.post(
+    "/api/assistant/text",
+    response_model=AssistantTextResponse,
+    dependencies=[Depends(require_api_key)],
+)
+def run_assistant_text(
+    request: FastAPIRequest,
+    payload: AssistantTextRequest,
+    db: Session = Depends(get_db),
+):
+    _enforce_voice_request_rate_limit(request, "assistant-text")
+    return execute_assistant_text_command(
+        db=db,
+        text=payload.text,
+        user_id=payload.user_id or "mirror-local",
+        account_name=payload.account_name,
+    )
+
+
+@router.post(
     VOICE_COMMAND_PATH,
     response_model=HaloCommandResponse,
     dependencies=[Depends(require_api_key)],
@@ -328,26 +311,17 @@ def run_halo_command(
     db: Session = Depends(get_db),
 ):
     _enforce_voice_request_rate_limit(request, "voice-command")
-    try:
-        result = execute_voice_tool(
-            "route_halo_command",
-            {
-                "userId": payload.user_id or "mirror-local",
-                "accountName": payload.account_name,
-                "command": payload.command,
-            },
-            db=db,
-        )
-    except VoiceToolError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+    result = execute_assistant_text_command(
+        db=db,
+        text=payload.command,
+        user_id=payload.user_id or "mirror-local",
+        account_name=payload.account_name,
+    )
 
     return {
-        "status": result.get("status", "error"),
+        "status": "success" if result.get("intent") != "unsupported" else "error",
         "intent": result.get("intent", "unknown"),
-        "reply": result.get("reply", ""),
-        "tool": result.get("tool", "route_halo_command"),
-        "data": result.get("data", {}),
+        "reply": result.get("response", ""),
+        "tool": result.get("selected_tool") or "assistant_text",
+        "data": result.get("tool_result", {}),
     }

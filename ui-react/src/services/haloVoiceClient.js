@@ -3,10 +3,11 @@ import { createHaloVoiceTools } from "./haloVoiceTools";
 
 const REALTIME_API_BASE_URL = "https://api.openai.com/v1/realtime/calls";
 const DEFAULT_MODEL = "gpt-realtime-2";
-const DEFAULT_IDLE_TIMEOUT_MS = 30000;
+const DEFAULT_IDLE_TIMEOUT_MS = 15000;
+const POST_RESPONSE_CLOSE_DELAY_MS = 2500;
 const KEYBOARD_SHORTCUT_LABEL = "Ctrl+Shift+H";
 const VOICE_ENABLED_STORAGE_KEY = "halo.voice.enabled.v1";
-const WAKE_WORDS = ["hi halo"];
+const WAKE_WORDS = ["hi halo", "hey halo", "هاي هالو", "هالو"];
 const USER_SCOPED_TOOL_NAMES = new Set([
   "route_halo_command",
   "create_calendar_event",
@@ -28,6 +29,7 @@ const USER_SCOPED_TOOL_NAMES = new Set([
   "phone_sync_plans",
   "phone_send_command_to_mirror",
 ]);
+const ARABIC_LOCALE_PATTERN = /^ar\b/i;
 
 function createInitialSnapshot() {
   return {
@@ -35,7 +37,10 @@ function createInitialSnapshot() {
     errorMessage: "",
     wakeRecognitionSupported: false,
     shortcutLabel: KEYBOARD_SHORTCUT_LABEL,
-    voiceEnabled: false,
+    voiceEnabled: true,
+    wakeModeActive: false,
+    wakeEngine: "manual",
+    microphonePermission: "prompt",
   };
 }
 
@@ -60,6 +65,56 @@ function transcriptContainsWakeWord(value) {
   }
 
   return WAKE_WORDS.some((wakeWord) => normalized.includes(wakeWord));
+}
+
+function debugLog(message, details) {
+  if (typeof console === "undefined" || typeof console.info !== "function") {
+    return;
+  }
+  if (typeof details === "undefined") {
+    console.info(`[HALO Voice] ${message}`);
+    return;
+  }
+  console.info(`[HALO Voice] ${message}`, details);
+}
+
+function isArabicLocale() {
+  const locale =
+    (Array.isArray(navigator.languages) && navigator.languages[0]) ||
+    navigator.language ||
+    "";
+  return ARABIC_LOCALE_PATTERN.test(locale);
+}
+
+function buildWakeGreeting() {
+  const englishGreetings = ["Yes, I'm listening.", "Hi, how can I help?"];
+  const arabicGreetings = ["نعم، أنا أسمعك.", "أهلًا، كيف أساعدك؟"];
+  const greetings = isArabicLocale() ? arabicGreetings : englishGreetings;
+  return greetings[Math.floor(Math.random() * greetings.length)];
+}
+
+async function speakWakeGreeting() {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+    return;
+  }
+
+  const text = buildWakeGreeting();
+  const lang = isArabicLocale() ? "ar-SA" : "en-US";
+
+  await new Promise((resolve) => {
+    try {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = lang;
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.onend = resolve;
+      utterance.onerror = resolve;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      resolve();
+    }
+  });
 }
 
 function safeParseJson(value) {
@@ -110,6 +165,7 @@ export function createHaloVoiceClient({
     getUserContext,
   });
 
+  // Local wake detection stays modular so we can swap Web Speech for Porcupine or Vosk later.
   const SpeechRecognitionClass =
     typeof window !== "undefined"
       ? window.SpeechRecognition || window.webkitSpeechRecognition
@@ -128,19 +184,26 @@ export function createHaloVoiceClient({
   let sessionMetadata = null;
   let shouldResumeWakeRecognition = true;
   let isManualWakeMode = !SpeechRecognitionClass;
+  let microphonePermissionRequested = false;
+  let postResponseCloseTimer = null;
 
   snapshot.wakeRecognitionSupported = Boolean(SpeechRecognitionClass);
   snapshot.voiceEnabled = readPersistedVoiceEnabled();
+  snapshot.wakeEngine = SpeechRecognitionClass ? "web-speech" : "manual";
 
   function readPersistedVoiceEnabled() {
     if (typeof window === "undefined") {
-      return false;
+      return true;
     }
 
     try {
-      return window.localStorage.getItem(VOICE_ENABLED_STORAGE_KEY) === "true";
+      const savedValue = window.localStorage.getItem(VOICE_ENABLED_STORAGE_KEY);
+      if (savedValue === null) {
+        return true;
+      }
+      return savedValue === "true";
     } catch {
-      return false;
+      return true;
     }
   }
 
@@ -173,21 +236,72 @@ export function createHaloVoiceClient({
     }
   }
 
+  function clearPostResponseCloseTimer() {
+    if (postResponseCloseTimer) {
+      window.clearTimeout(postResponseCloseTimer);
+      postResponseCloseTimer = null;
+    }
+  }
+
   function scheduleIdleTimeout() {
     clearIdleTimer();
     if (!peerConnection) {
       return;
     }
 
-    const timeoutSeconds = Number(sessionMetadata?.idle_timeout_seconds) || 30;
+    const timeoutSeconds = Number(sessionMetadata?.idle_timeout_seconds) || 15;
     idleTimer = window.setTimeout(() => {
+      debugLog("session ended", { reason: "idle-timeout" });
       void stopListening();
-    }, Math.max(timeoutSeconds * 1000, DEFAULT_IDLE_TIMEOUT_MS));
+    }, Math.min(timeoutSeconds * 1000, DEFAULT_IDLE_TIMEOUT_MS));
   }
 
   function resetActivityTimer() {
+    clearPostResponseCloseTimer();
     if (peerConnection) {
       scheduleIdleTimeout();
+    }
+  }
+
+  function schedulePostResponseClose() {
+    clearPostResponseCloseTimer();
+    if (!peerConnection) {
+      return;
+    }
+    postResponseCloseTimer = window.setTimeout(() => {
+      debugLog("session ended", { reason: "response-complete" });
+      void stopListening();
+    }, POST_RESPONSE_CLOSE_DELAY_MS);
+  }
+
+  async function ensureMicrophonePermission() {
+    if (
+      microphonePermissionRequested ||
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    microphonePermissionRequested = true;
+    try {
+      const permissionStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      snapshot.microphonePermission = "granted";
+      permissionStream.getTracks().forEach((track) => track.stop());
+      debugLog("microphone permission granted");
+    } catch (error) {
+      snapshot.microphonePermission = "denied";
+      debugLog("microphone permission denied");
+      throw error;
+    } finally {
+      emit();
     }
   }
 
@@ -209,6 +323,7 @@ export function createHaloVoiceClient({
     }
 
     snapshot.wakeRecognitionSupported = !isManualWakeMode && Boolean(SpeechRecognitionClass);
+    snapshot.wakeModeActive = false;
     emit();
   }
 
@@ -233,6 +348,7 @@ export function createHaloVoiceClient({
     stopWakeRecognition();
 
     try {
+      await ensureMicrophonePermission();
       recognition = new SpeechRecognitionClass();
       recognition.continuous = true;
       recognition.interimResults = true;
@@ -251,6 +367,7 @@ export function createHaloVoiceClient({
           return;
         }
 
+        debugLog("wake phrase detected", { transcript: transcript.slice(0, 120) });
         void activateVoiceSession({ source: "wake-word" });
       };
 
@@ -280,6 +397,8 @@ export function createHaloVoiceClient({
       shouldResumeWakeRecognition = true;
       isManualWakeMode = false;
       snapshot.wakeRecognitionSupported = true;
+      snapshot.wakeModeActive = true;
+      snapshot.wakeEngine = "web-speech";
       emit();
     } catch {
       stopWakeRecognition({ manualOnly: true });
@@ -359,6 +478,8 @@ export function createHaloVoiceClient({
       }
 
       const result = await haloVoiceTools.executeTool(toolName, argumentsPayload);
+      debugLog("selected tool", { tool: toolName, arguments: argumentsPayload });
+      debugLog("tool result", result);
       outputPayload = result;
     } catch (error) {
       outputPayload = {
@@ -420,6 +541,7 @@ export function createHaloVoiceClient({
             setStatus("listening");
           }
           resetActivityTimer();
+          schedulePostResponseClose();
           break;
         }
 
@@ -458,11 +580,13 @@ export function createHaloVoiceClient({
       audioElement.onended = () => {
         if (peerConnection) {
           setStatus("listening");
+          schedulePostResponseClose();
         }
       };
       audioElement.onpause = () => {
         if (peerConnection) {
           setStatus("listening");
+          schedulePostResponseClose();
         }
       };
     }
@@ -473,6 +597,7 @@ export function createHaloVoiceClient({
 
   async function closeRealtimeSession({ restartWake = true } = {}) {
     clearIdleTimer();
+    clearPostResponseCloseTimer();
     isConnecting = false;
     sessionMetadata = null;
 
@@ -551,10 +676,12 @@ export function createHaloVoiceClient({
     stopWakeRecognition({ manualOnly: isManualWakeMode });
     setStatus("listening");
     emit();
+    debugLog("session started", { source });
 
     try {
       if (source === "wake-word") {
         await activationSound.play();
+        await speakWakeGreeting();
       }
 
       const [voiceSession, toolDefinitions] = await Promise.all([
@@ -685,6 +812,10 @@ export function createHaloVoiceClient({
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("beforeunload", handlePageHide);
 
+    if (snapshot.voiceEnabled) {
+      void ensureMicrophonePermission().catch(() => {});
+    }
+
     if (snapshot.voiceEnabled && SpeechRecognitionClass) {
       void startWakeRecognition();
       return;
@@ -713,10 +844,12 @@ export function createHaloVoiceClient({
       if (!enabled) {
         stopWakeRecognition({ manualOnly: !SpeechRecognitionClass });
         void closeRealtimeSession({ restartWake: false });
+        snapshot.wakeModeActive = false;
         emit();
         return;
       }
 
+      void ensureMicrophonePermission().catch(() => {});
       if (isStarted && SpeechRecognitionClass && !peerConnection && !isConnecting) {
         void startWakeRecognition();
       }

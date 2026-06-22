@@ -6,6 +6,7 @@ import SensorsCard from "./components/SensorsCard";
 import WeatherCard from "./components/WeatherCard";
 import TodayCard from "./components/TodayCard";
 import DailyTipCard from "./components/DailyTipCard";
+import NewsCard from "./components/NewsCard";
 import HaloVoiceStatus from "./components/HaloVoiceStatus";
 import useMirrorGestureCamera from "./hooks/useMirrorGestureCamera";
 import { createHaloVoiceClient } from "./services/haloVoiceClient";
@@ -103,6 +104,10 @@ function buildProfileFallback() {
     accountName: "Friend",
     updatedAt: "",
   };
+}
+
+function buildNewsFallback() {
+  return [];
 }
 
 function buildNowPlayingFallback() {
@@ -397,6 +402,7 @@ function buildCalendarModel(date = new Date(), itemsByDate = {}, selectedDate = 
 
 const defaultModuleVisibility = Object.freeze({
   weatherEnabled: true,
+  newsEnabled: true,
   dateEnabled: true,
   remindersEnabled: true,
   calendarEnabled: true,
@@ -423,6 +429,7 @@ function normalizeModuleVisibilityPayload(payload) {
 
   return {
     weatherEnabled: readBooleanSetting(source, "weather_enabled", "weatherEnabled"),
+    newsEnabled: readBooleanSetting(source, "news_enabled", "newsEnabled"),
     dateEnabled: readBooleanSetting(source, "date_enabled", "dateEnabled"),
     remindersEnabled: readBooleanSetting(source, "reminders_enabled", "remindersEnabled"),
     calendarEnabled: readBooleanSetting(source, "calendar_enabled", "calendarEnabled"),
@@ -608,14 +615,44 @@ function normalizePlannerPlans(payload) {
   }));
 }
 
+function normalizeNewsPayload(payload) {
+  const items = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.headlines)
+    ? payload.headlines
+    : [];
+
+  return items.map((item, index) => ({
+    id: item?.id || `headline-${index + 1}`,
+    title: String(item?.title || "").trim(),
+    link: typeof item?.link === "string" ? item.link : "",
+    source: typeof item?.source === "string" ? item.source : "News",
+    published_at:
+      typeof item?.published_at === "string"
+        ? item.published_at
+        : typeof item?.publishedAt === "string"
+        ? item.publishedAt
+        : "",
+  }));
+}
+
 function resolveVoiceScreenName(detail) {
   const toolName = String(detail?.tool || detail?.result?.tool || "").trim();
+  const widgetName = String(
+    detail?.arguments?.widgetName ||
+      detail?.result?.data?.widget ||
+      ""
+  ).trim();
   const screenName = String(
     detail?.arguments?.screenName ||
       detail?.result?.data?.screen_name ||
       detail?.result?.data?.ui?.screen_name ||
       ""
   ).trim();
+
+  if (widgetName === "news" || toolName === "show_news") {
+    return "news";
+  }
 
   if (screenName) {
     return screenName;
@@ -647,6 +684,10 @@ function resolveVoiceScreenName(detail) {
 
   if (toolName === "show_weather") {
     return "weather";
+  }
+
+  if (toolName === "show_news") {
+    return "news";
   }
 
   if (toolName === "open_youtube") {
@@ -831,12 +872,17 @@ export default function Dashboard() {
     ...buildWeatherFallback(),
   });
   const [plannerPlans, setPlannerPlans] = useState([]);
+  const [newsHeadlines, setNewsHeadlines] = useState(() => buildNewsFallback());
   const [mirrorAlarm, setMirrorAlarm] = useState(null);
   const [voiceState, setVoiceState] = useState({
     status: "idle",
     errorMessage: "",
     wakeRecognitionSupported: false,
     shortcutLabel: "Ctrl+Shift+H",
+    voiceEnabled: true,
+    wakeModeActive: false,
+    wakeEngine: "manual",
+    microphonePermission: "prompt",
   });
   const [weatherRefreshKey, setWeatherRefreshKey] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
@@ -869,6 +915,7 @@ export default function Dashboard() {
   const todayCardRef = useRef(null);
   const nowPlayingCardRef = useRef(null);
   const calendarCardRef = useRef(null);
+  const newsCardRef = useRef(null);
   const calendar = useMemo(
     () => buildCalendarModel(calendarMonthDate, calendarItemsByDate, selectedCalendarDate),
     [calendarItemsByDate, calendarMonthDate, selectedCalendarDate]
@@ -1238,6 +1285,35 @@ export default function Dashboard() {
   useEffect(() => {
     let cancelled = false;
 
+    const loadNews = async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/news/headlines`);
+        if (!response.ok) {
+          throw new Error("News request failed");
+        }
+        const payload = await response.json();
+        if (!cancelled) {
+          setNewsHeadlines(normalizeNewsPayload(payload));
+        }
+      } catch {
+        if (!cancelled) {
+          setNewsHeadlines((current) => current);
+        }
+      }
+    };
+
+    loadNews();
+    const pollId = setInterval(loadNews, 300000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollId);
+    };
+  }, [dashboardRefreshKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     const loadCalendarAgenda = async () => {
       try {
         const [calendarResponse, todosResponse] = await Promise.all([
@@ -1495,7 +1571,36 @@ export default function Dashboard() {
 
   useEffect(() => {
     const handleVoiceTool = (event) => {
-      const screenName = resolveVoiceScreenName(event?.detail);
+      const detail = event?.detail;
+      const resultData = detail?.result?.data || {};
+      const executedTool =
+        String(resultData?.executed_tool || detail?.result?.tool || detail?.tool || "").trim();
+
+      if (resultData?.modules) {
+        setModuleVisibility(normalizeModuleVisibilityPayload({ modules: resultData.modules }));
+        setRefreshSignals(normalizeRefreshSignalsPayload({ modules: resultData.modules }));
+      }
+
+      if (resultData?.weather && resultData?.location) {
+        setWeather(normalizeFallbackWeatherPayload({
+          weather: resultData.weather,
+          location: resultData.location,
+        }));
+      }
+
+      if (Array.isArray(resultData?.events) || executedTool === "create_calendar_event" || executedTool === "add_reminder" || executedTool === "delete_reminder") {
+        setDashboardRefreshKey((value) => value + 1);
+      }
+
+      if (resultData?.now_playing) {
+        rememberNowPlaying(resultData.now_playing);
+      }
+
+      if (executedTool === "show_news" || executedTool === "hide_news") {
+        setDashboardRefreshKey((value) => value + 1);
+      }
+
+      const screenName = resolveVoiceScreenName(detail);
       if (!screenName) {
         return;
       }
@@ -1506,6 +1611,7 @@ export default function Dashboard() {
         today: todayCardRef,
         youtube: nowPlayingCardRef,
         calendar: calendarCardRef,
+        news: newsCardRef,
       };
       const targetRef = cardMap[screenName];
       targetRef?.current?.scrollIntoView({
@@ -1607,6 +1713,12 @@ export default function Dashboard() {
                 disabled={!moduleVisibility.remindersEnabled}
               />
             </div>
+            <div ref={newsCardRef}>
+              <NewsCard
+                headlines={newsHeadlines}
+                disabled={!moduleVisibility.newsEnabled}
+              />
+            </div>
             <DailyTipCard tip={tip} />
           </div>
 
@@ -1641,11 +1753,17 @@ export default function Dashboard() {
         wakeRecognitionSupported={voiceState.wakeRecognitionSupported}
         shortcutLabel={voiceState.shortcutLabel}
         voiceEnabled={voiceState.voiceEnabled}
+        wakeModeActive={voiceState.wakeModeActive}
+        wakeEngine={voiceState.wakeEngine}
+        microphonePermission={voiceState.microphonePermission}
         onActivate={() => {
           void voiceClientRef.current?.activate();
         }}
         onStop={() => {
           void voiceClientRef.current?.stopListening();
+        }}
+        onToggleVoiceEnabled={(enabled) => {
+          voiceClientRef.current?.setVoiceEnabled(enabled);
         }}
       />
     </div>

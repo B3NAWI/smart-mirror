@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List
 
 from dotenv import load_dotenv
+from assistant.prompts import build_assistant_instructions
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = BACKEND_DIR.parent
@@ -96,6 +97,11 @@ LOCAL_NETWORK_ORIGIN_REGEX = (
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime-2").strip() or "gpt-realtime-2"
+NEWS_FEED_URL = os.getenv(
+    "NEWS_FEED_URL",
+    "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
+).strip()
+NEWS_HEADLINES_LIMIT = _parse_int("NEWS_HEADLINES_LIMIT", 5, minimum=1, maximum=10)
 HALO_VOICE_ENABLED = _parse_bool("HALO_VOICE_ENABLED", True)
 HALO_MAX_INPUT_TOKENS = _parse_int("HALO_MAX_INPUT_TOKENS", 100000, minimum=1)
 HALO_MAX_OUTPUT_TOKENS = _parse_int(
@@ -133,12 +139,4 @@ HALO_VOICE_SUPPORTED_COMMAND_GROUPS = [
     "reminders",
     "screen_on_off",
 ]
-HALO_VOICE_ASSISTANT_INSTRUCTIONS = (
-    "You are HALO Mirror, a concise smart mirror voice assistant. "
-    "The wake phrase is 'Hi Halo'. "
-    "Respond in the user's language using short answers only, ideally one sentence. "
-    "Minimize token usage, avoid long explanations, and prefer tool calls over free-form text. "
-    "For end-user requests, call the route_halo_command tool first whenever it can handle the command. "
-    "Use backend tools and endpoints for calendar, weather, YouTube, reminders, and screen on/off actions. "
-    "Do not invent data. If a command changes state, confirm briefly and stop."
-)
+HALO_VOICE_ASSISTANT_INSTRUCTIONS = build_assistant_instructions(HALO_PRIMARY_WAKE_PHRASE)

@@ -1,6 +1,6 @@
 const STATUS_LABELS = {
-  idle: "Halo Voice",
-  listening: "Listening",
+  idle: "Wake Ready",
+  listening: "HALO is listening",
   thinking: "Thinking",
   speaking: "Speaking",
   error: "Voice Error",
@@ -11,22 +11,27 @@ export default function HaloVoiceStatus({
   errorMessage = "",
   wakeRecognitionSupported = false,
   shortcutLabel = "Ctrl+Shift+H",
-  voiceEnabled = false,
+  voiceEnabled = true,
+  wakeModeActive = false,
+  wakeEngine = "manual",
+  microphonePermission = "prompt",
   onActivate,
   onStop,
+  onToggleVoiceEnabled,
 }) {
   const isActive = status === "listening" || status === "thinking" || status === "speaking";
-  const primaryLabel =
-    !voiceEnabled
-      ? "Enable Voice"
-      : status === "idle" && !wakeRecognitionSupported
-      ? "Voice Manual"
-      : STATUS_LABELS[status];
+  const primaryLabel = !voiceEnabled
+    ? "Auto Wake Off"
+    : !wakeRecognitionSupported && status === "idle"
+    ? "Manual Voice"
+    : STATUS_LABELS[status];
   const helperLabel = !voiceEnabled
-    ? `Enable once, then use ${shortcutLabel}`
-    : wakeRecognitionSupported
-    ? `Wake words enabled • ${shortcutLabel}`
-    : `Manual start only • ${shortcutLabel}`;
+    ? `Automatic microphone is off. Use ${shortcutLabel} or enable wake mode.`
+    : wakeModeActive
+    ? `Wake mode active via ${wakeEngine}. Say "Hi Halo".`
+    : microphonePermission === "denied"
+    ? "Microphone permission was denied. Manual mode is still available."
+    : `Manual start only via ${shortcutLabel}.`;
 
   return (
     <div
@@ -36,12 +41,24 @@ export default function HaloVoiceStatus({
       <button
         type="button"
         className="halo-voice-status__primary"
-        onClick={isActive ? onStop : onActivate}
+        onClick={() => {
+          if (!voiceEnabled) {
+            onToggleVoiceEnabled?.(true);
+            return;
+          }
+          if (isActive) {
+            onStop?.();
+            return;
+          }
+          onActivate?.();
+        }}
         aria-pressed={isActive || voiceEnabled}
       >
         <span className="halo-voice-status__dot" aria-hidden="true" />
         <span className="halo-voice-status__label">{primaryLabel}</span>
       </button>
+
+      <span className="halo-voice-status__helper">{helperLabel}</span>
 
       {isActive ? (
         <button
@@ -52,7 +69,16 @@ export default function HaloVoiceStatus({
         >
           Stop
         </button>
-      ) : null}
+      ) : (
+        <button
+          type="button"
+          className="halo-voice-status__stop"
+          onClick={() => onToggleVoiceEnabled?.(!voiceEnabled)}
+          aria-label={voiceEnabled ? "Disable automatic microphone" : "Enable automatic microphone"}
+        >
+          {voiceEnabled ? "Auto On" : "Auto Off"}
+        </button>
+      )}
     </div>
   );
 }

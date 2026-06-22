@@ -73,6 +73,7 @@ class MirrorModuleSettings(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     weather_enabled = Column(Boolean, nullable=False, default=True)
+    news_enabled = Column(Boolean, nullable=False, default=True)
     date_enabled = Column(Boolean, nullable=False, default=True)
     reminders_enabled = Column(Boolean, nullable=False, default=True)
     calendar_enabled = Column(Boolean, nullable=False, default=True)
