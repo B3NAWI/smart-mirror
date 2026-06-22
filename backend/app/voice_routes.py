@@ -1,12 +1,10 @@
-import json
 from collections import defaultdict, deque
 from threading import Lock
 from time import monotonic
 from typing import Deque, Dict
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, Depends, HTTPException, Request as FastAPIRequest, status
+from openai import APIConnectionError, APIStatusError, OpenAI
 from sqlalchemy.orm import Session
 
 from .auth import require_api_key
@@ -16,14 +14,22 @@ from .config import (
     HALO_VOICE_ASSISTANT_INSTRUCTIONS,
     HALO_VOICE_ENABLED,
     HALO_VOICE_IDLE_TIMEOUT_SECONDS,
+    HALO_PRIMARY_WAKE_PHRASE,
     HALO_VOICE_REASONING_EFFORT,
     HALO_VOICE_SESSION_TIMEOUT_SECONDS,
+    HALO_VOICE_SUPPORTED_COMMAND_GROUPS,
     HALO_WAKE_WORDS,
     OPENAI_API_KEY,
     OPENAI_REALTIME_MODEL,
 )
 from .database import get_db
-from .schemas import VoiceSessionRequest, VoiceSessionResponse, VoiceToolExecuteRequest
+from .schemas import (
+    HaloCommandRequest,
+    HaloCommandResponse,
+    VoiceSessionRequest,
+    VoiceSessionResponse,
+    VoiceToolExecuteRequest,
+)
 from .voice_tools import (
     VoiceToolError,
     VoiceToolNotFoundError,
@@ -34,10 +40,12 @@ from .voice_tools import (
 
 router = APIRouter(tags=["voice"])
 
-OPENAI_REALTIME_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets"
 VOICE_SESSION_RATE_LIMIT_WINDOW_SECONDS = 60
 VOICE_SESSION_RATE_LIMIT_MAX_REQUESTS = 5
 DEFAULT_AUDIO_VOICE = "marin"
+VOICE_TOOLS_LISTING_PATH = "/api/voice/tools"
+VOICE_TOOLS_EXECUTE_PATH = "/api/voice/tools/execute"
+VOICE_COMMAND_PATH = "/api/voice/command"
 
 _rate_limit_buckets: Dict[str, Deque[float]] = defaultdict(deque)
 _rate_limit_lock = Lock()
@@ -109,9 +117,7 @@ def _build_realtime_session_payload(payload: VoiceSessionRequest) -> dict:
         "instructions": HALO_VOICE_ASSISTANT_INSTRUCTIONS,
         "max_output_tokens": HALO_MAX_OUTPUT_TOKENS,
         "output_modalities": [payload.output_modality],
-        "reasoning": {
-            "effort": HALO_VOICE_REASONING_EFFORT,
-        },
+        "reasoning": {"effort": HALO_VOICE_REASONING_EFFORT},
         "truncation": "auto",
     }
 
@@ -140,48 +146,28 @@ def _build_realtime_session_payload(payload: VoiceSessionRequest) -> dict:
     }
 
 
-def _parse_openai_error_message(raw_body: str) -> str | None:
-    if not raw_body:
-        return None
-
-    try:
-        body = json.loads(raw_body)
-    except json.JSONDecodeError:
-        return None
-
-    error = body.get("error")
-    if isinstance(error, dict):
-        message = error.get("message")
-        if isinstance(message, str):
-            return message.strip() or None
-    return None
-
-
 def _create_realtime_client_secret(payload: dict) -> dict:
-    request = Request(
-        OPENAI_REALTIME_CLIENT_SECRETS_URL,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-        method="POST",
-    )
+    client = OpenAI(api_key=OPENAI_API_KEY)
 
     try:
-        with urlopen(request, timeout=15) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        raw_error = exc.read().decode("utf-8", errors="replace")
-        provider_message = _parse_openai_error_message(raw_error)
+        response = client.realtime.client_secrets.create(**payload)
+    except APIStatusError as exc:
+        provider_message = None
+        if isinstance(exc.body, dict):
+            raw_message = exc.body.get("message")
+            if isinstance(raw_message, str):
+                provider_message = raw_message.strip()[:200]
 
-        if exc.code in {401, 403}:
+        if exc.status_code in {401, 403}:
             detail = "Voice provider authentication failed on the server."
-        elif exc.code == 429:
+        elif exc.status_code == 429:
             detail = "Voice provider rate limit reached. Please try again shortly."
-        elif exc.code == 400:
-            detail = provider_message or "Voice provider rejected the session configuration."
+        elif exc.status_code == 400:
+            detail = (
+                f"Voice provider rejected the session configuration: {provider_message}"
+                if provider_message
+                else "Voice provider rejected the session configuration."
+            )
         else:
             detail = "Voice provider session creation failed."
 
@@ -189,11 +175,26 @@ def _create_realtime_client_secret(payload: dict) -> dict:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=detail,
         ) from exc
-    except URLError as exc:
+    except APIConnectionError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Unable to reach the voice provider right now.",
         ) from exc
+
+    response_payload = (
+        response.model_dump(exclude_none=True)
+        if hasattr(response, "model_dump")
+        else {
+            "value": response.value,
+            "expires_at": response.expires_at,
+            "session": {},
+        }
+    )
+    return {
+        "value": response_payload.get("value", ""),
+        "expires_at": response_payload.get("expires_at"),
+        "session": response_payload.get("session", {}),
+    }
 
 
 @router.post(
@@ -264,6 +265,11 @@ def create_voice_session(
             "idle_timeout_seconds": HALO_VOICE_IDLE_TIMEOUT_SECONDS,
             "session_timeout_seconds": HALO_VOICE_SESSION_TIMEOUT_SECONDS,
             "wake_words": HALO_WAKE_WORDS,
+            "primary_wake_phrase": HALO_PRIMARY_WAKE_PHRASE,
+            "response_style": "short",
+            "supported_command_groups": HALO_VOICE_SUPPORTED_COMMAND_GROUPS,
+            "tool_listing_path": VOICE_TOOLS_LISTING_PATH,
+            "tool_execute_path": VOICE_TOOLS_EXECUTE_PATH,
         },
     }
 
@@ -309,3 +315,39 @@ def run_voice_tool(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+
+@router.post(
+    VOICE_COMMAND_PATH,
+    response_model=HaloCommandResponse,
+    dependencies=[Depends(require_api_key)],
+)
+def run_halo_command(
+    request: FastAPIRequest,
+    payload: HaloCommandRequest,
+    db: Session = Depends(get_db),
+):
+    _enforce_voice_request_rate_limit(request, "voice-command")
+    try:
+        result = execute_voice_tool(
+            "route_halo_command",
+            {
+                "userId": payload.user_id or "mirror-local",
+                "accountName": payload.account_name,
+                "command": payload.command,
+            },
+            db=db,
+        )
+    except VoiceToolError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return {
+        "status": result.get("status", "error"),
+        "intent": result.get("intent", "unknown"),
+        "reply": result.get("reply", ""),
+        "tool": result.get("tool", "route_halo_command"),
+        "data": result.get("data", {}),
+    }

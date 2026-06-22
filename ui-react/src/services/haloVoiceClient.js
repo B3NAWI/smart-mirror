@@ -6,8 +6,11 @@ const DEFAULT_MODEL = "gpt-realtime-2";
 const DEFAULT_IDLE_TIMEOUT_MS = 30000;
 const KEYBOARD_SHORTCUT_LABEL = "Ctrl+Shift+H";
 const VOICE_ENABLED_STORAGE_KEY = "halo.voice.enabled.v1";
-const WAKE_WORDS = ["halo", "halo mirror", "هالو", "هالو ميرور"];
+const WAKE_WORDS = ["hi halo"];
 const USER_SCOPED_TOOL_NAMES = new Set([
+  "route_halo_command",
+  "create_calendar_event",
+  "list_calendar_events",
   "get_today_plan",
   "get_week_plan",
   "get_month_plan",
@@ -569,8 +572,10 @@ export function createHaloVoiceClient({
       dataChannel.onopen = () => {
         const serverInstructions = String(voiceSession?.metadata?.instructions || "").trim();
         const shortReplyInstruction =
-          "Keep spoken answers to one or two short sentences unless the user explicitly asks for more.";
-        const nextInstructions = [serverInstructions, shortReplyInstruction]
+          "Keep spoken answers to one short sentence.";
+        const routingInstruction =
+          "For mirror questions or commands, call route_halo_command with the user's exact request before answering whenever possible.";
+        const nextInstructions = [serverInstructions, routingInstruction, shortReplyInstruction]
           .filter(Boolean)
           .join("\n");
 

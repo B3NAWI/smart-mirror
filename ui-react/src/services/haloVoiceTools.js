@@ -1,4 +1,7 @@
 const USER_SCOPED_TOOLS = new Set([
+  "route_halo_command",
+  "create_calendar_event",
+  "list_calendar_events",
   "get_today_plan",
   "get_week_plan",
   "get_month_plan",

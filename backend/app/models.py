@@ -136,3 +136,21 @@ class PlannerSegment(Base):
     )
 
     plan = relationship("PlannerPlan", back_populates="segments")
+
+
+class UserPreference(Base):
+    __tablename__ = "user_preferences"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(128), nullable=False, unique=True, index=True)
+    preferred_name = Column(String(120), nullable=False, default="")
+    locale = Column(String(32), nullable=False, default="en-US")
+    timezone = Column(String(64), nullable=False, default="")
+    short_responses = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )

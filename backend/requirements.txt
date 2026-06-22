@@ -2,5 +2,6 @@ fastapi
 uvicorn[standard]
 paho-mqtt
 python-dotenv
+openai
 sqlalchemy
 yt-dlp

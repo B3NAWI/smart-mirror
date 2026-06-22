@@ -576,6 +576,37 @@ class MirrorRefreshRequest(BaseModel):
     mirror_data: bool = False
 
 
+class HaloCommandRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    command: str
+    user_id: Optional[str] = None
+    account_name: Optional[str] = None
+
+    @field_validator("command", mode="before")
+    @classmethod
+    def validate_command(cls, value: str) -> str:
+        if value is None:
+            raise ValueError("command cannot be empty")
+        cleaned = str(value).strip()
+        if not cleaned:
+            raise ValueError("command cannot be empty")
+        return cleaned
+
+    @field_validator("user_id", "account_name", mode="before")
+    @classmethod
+    def clean_optional_command_text(cls, value: Optional[str]) -> Optional[str]:
+        return _clean_optional_text(value)
+
+
+class HaloCommandResponse(BaseModel):
+    status: Literal["success", "error"]
+    intent: str
+    reply: str
+    tool: str
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+
 VoiceSessionClient = Literal["mirror", "mobile", "unknown"]
 VoiceSessionOutputModality = Literal["audio", "text"]
 
@@ -612,6 +643,11 @@ class VoiceSessionMetadata(BaseModel):
     idle_timeout_seconds: int
     session_timeout_seconds: int
     wake_words: List[str]
+    primary_wake_phrase: str
+    response_style: str
+    supported_command_groups: List[str]
+    tool_listing_path: str
+    tool_execute_path: str
 
 
 class VoiceSessionResponse(BaseModel):

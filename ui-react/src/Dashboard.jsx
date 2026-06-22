@@ -611,10 +611,13 @@ function normalizePlannerPlans(payload) {
 function resolveVoiceScreenName(detail) {
   const toolName = String(detail?.tool || detail?.result?.tool || "").trim();
   const screenName = String(
-    detail?.arguments?.screenName || detail?.result?.data?.screen_name || ""
+    detail?.arguments?.screenName ||
+      detail?.result?.data?.screen_name ||
+      detail?.result?.data?.ui?.screen_name ||
+      ""
   ).trim();
 
-  if (toolName === "mirror_set_screen" && screenName) {
+  if (screenName) {
     return screenName;
   }
 
@@ -635,6 +638,18 @@ function resolveVoiceScreenName(detail) {
   }
 
   if (toolName === "media_open_youtube") {
+    return "youtube";
+  }
+
+  if (toolName === "show_calendar") {
+    return "calendar";
+  }
+
+  if (toolName === "show_weather") {
+    return "weather";
+  }
+
+  if (toolName === "open_youtube") {
     return "youtube";
   }
 
@@ -1538,7 +1553,6 @@ export default function Dashboard() {
   return (
     <div>
       <div className="bg"></div>
-
       <div className="shell">
         <div className="top-bar">
           <div className="halo-title">HALLO MIRROR</div>

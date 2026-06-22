@@ -1,6 +1,5 @@
 const quickShortcuts = [
   { icon: "MU", name: "Music", hint: "Quick listening", tone: "cyan" },
-  { icon: "NW", name: "News", hint: "Morning brief", tone: "amber" },
   { icon: "FX", name: "Focus", hint: "Deep work mode", tone: "emerald" },
   { icon: "ST", name: "Settings", hint: "Mirror controls", tone: "slate" },
 ];

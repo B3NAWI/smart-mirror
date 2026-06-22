@@ -3,17 +3,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime, time as time_type, timedelta
+import re
 from typing import Any, Callable, Dict, List, Optional, Type
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy.orm import Session
 
 from .calendar_routes import get_events_for_date
-from .models import CalendarEvent, NowPlayingState, PlannerPlan, PlannerSegment, TodoTask
+from .models import (
+    CalendarEvent,
+    NowPlayingState,
+    PlannerPlan,
+    PlannerSegment,
+    TodoTask,
+    UserPreference,
+)
 from .planner_routes import delete_planner_segment, upsert_planner_plan
 from .schemas import PlannerPlanUpsert, PlannerSegmentUpsert
 from .state import get_state, update_state
 from .todo_routes import get_todos_for_date
+from .weather_routes import read_current_weather
 from .youtube_streams import find_related_youtube_video, search_youtube_videos
 
 REMINDER_SOURCE_PREFIX = "reminder:"
@@ -32,6 +41,7 @@ PHONE_TO_MIRROR_COMMAND_ALLOWLIST = {
     "media_stop",
     "media_next",
 }
+WAKE_PHRASE_PATTERN = re.compile(r"^\s*(?:hi\s+halo|halo\s+mirror|halo|هالو(?:\s+ميرور)?)\s*[,،]?\s*", re.IGNORECASE)
 
 
 class VoiceToolError(Exception):
@@ -302,6 +312,76 @@ class GetPressureInput(EmptyToolInput):
     pass
 
 
+class GetCurrentTimeInput(EmptyToolInput):
+    pass
+
+
+class CreateCalendarEventInput(UserScopedToolInput):
+    title: str = Field(min_length=1, max_length=255)
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    description: Optional[str] = Field(default=None, max_length=1000)
+    location: Optional[str] = Field(default=None, max_length=255)
+    source: str = Field(default="voice", min_length=1, max_length=50)
+
+    @field_validator("title", "description", "location", "source", mode="before")
+    @classmethod
+    def clean_calendar_text(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        if not cleaned:
+            return None
+        return cleaned
+
+
+class ListCalendarEventsInput(UserScopedToolInput):
+    date: Optional[date_type] = None
+    from_datetime: Optional[datetime] = Field(default=None, alias="from")
+    to_datetime: Optional[datetime] = Field(default=None, alias="to")
+
+
+class ShowCalendarInput(EmptyToolInput):
+    pass
+
+
+class HideCalendarInput(EmptyToolInput):
+    pass
+
+
+class ShowWeatherInput(EmptyToolInput):
+    pass
+
+
+class HideWeatherInput(EmptyToolInput):
+    pass
+
+
+class OpenYoutubeInput(EmptyToolInput):
+    pass
+
+
+class ScreenOnInput(EmptyToolInput):
+    pass
+
+
+class ScreenOffInput(EmptyToolInput):
+    pass
+
+
+class RouteHaloCommandInput(UserScopedToolInput):
+    command: str = Field(min_length=1, max_length=500)
+    accountName: Optional[str] = Field(default=None, max_length=120)
+
+    @field_validator("command", "accountName", mode="before")
+    @classmethod
+    def clean_router_text(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
+
+
 @dataclass(frozen=True)
 class VoiceToolSpec:
     name: str
@@ -315,6 +395,29 @@ def _require_db(db: Optional[Session]) -> Session:
     if db is None:
         raise VoiceToolError("A database session is required for this tool.")
     return db
+
+
+def _get_or_create_user_preference(
+    db: Session,
+    user_id: str,
+    account_name: Optional[str] = None,
+) -> UserPreference:
+    preference = db.query(UserPreference).filter(UserPreference.user_id == user_id).first()
+    if preference is not None:
+        if account_name and not preference.preferred_name:
+            preference.preferred_name = account_name
+            db.commit()
+            db.refresh(preference)
+        return preference
+
+    preference = UserPreference(
+        user_id=user_id,
+        preferred_name=(account_name or "").strip(),
+    )
+    db.add(preference)
+    db.commit()
+    db.refresh(preference)
+    return preference
 
 
 def _normalize_reminder_source(source: str) -> str:
@@ -342,6 +445,62 @@ def _parse_alarm_id(alarm_id: str) -> tuple[str, str]:
     if not separator or not plan_id or not segment_id:
         raise VoiceToolError("alarmId must be in the format '<planId>:<segmentId>'.")
     return plan_id, segment_id
+
+
+def _strip_wake_phrase(command: str) -> str:
+    return WAKE_PHRASE_PATTERN.sub("", command or "").strip()
+
+
+def _normalize_command(command: str) -> str:
+    cleaned = _strip_wake_phrase(command)
+    return re.sub(r"\s+", " ", cleaned).strip().lower()
+
+
+def _format_clock_time(value: datetime) -> str:
+    return value.strftime("%I:%M %p").lstrip("0")
+
+
+def _parse_relative_date(command: str) -> date_type:
+    now = datetime.now()
+    normalized = _normalize_command(command)
+    if "tomorrow" in normalized:
+        return (now + timedelta(days=1)).date()
+    if "today" in normalized:
+        return now.date()
+    return now.date()
+
+
+def _parse_time_of_day(command: str) -> time_type:
+    normalized = _normalize_command(command)
+    match = re.search(
+        r"\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2) or "0")
+        meridiem = match.group(3).lower()
+        if hour == 12:
+            hour = 0
+        if meridiem == "pm":
+            hour += 12
+        return time_type(hour=hour % 24, minute=minute)
+
+    match = re.search(r"\bat\s+(\d{1,2}):(\d{2})\b", normalized)
+    if match:
+        return time_type(hour=int(match.group(1)) % 24, minute=int(match.group(2)))
+
+    raise VoiceToolError("I could not find a time for that calendar event.")
+
+
+def _extract_event_title(command: str) -> str:
+    original = _strip_wake_phrase(command)
+    cleaned = re.sub(r"^(add|create|schedule)\s+(an?\s+)?", "", original, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b(today|tomorrow)\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-")
+    return cleaned or "Appointment"
 
 
 def _placeholder_result(tool_name: str, message: str, todo: str) -> Dict[str, Any]:
@@ -1195,7 +1354,356 @@ def _tool_get_pressure(args: GetPressureInput, db: Optional[Session]) -> Dict[st
     }
 
 
+def _tool_get_current_time(args: GetCurrentTimeInput, db: Optional[Session]) -> Dict[str, Any]:
+    now = datetime.now()
+    return {
+        "tool": "get_current_time",
+        "status": "success",
+        "reply": f"It is {_format_clock_time(now)}.",
+        "data": {
+            "iso_datetime": now.isoformat(),
+            "display_time": _format_clock_time(now),
+            "display_date": now.strftime("%A, %B %d"),
+        },
+    }
+
+
+def _tool_create_calendar_event(
+    args: CreateCalendarEventInput,
+    db: Optional[Session],
+) -> Dict[str, Any]:
+    live_db = _require_db(db)
+    end_time = args.end_time or (args.start_time + timedelta(hours=1))
+    if end_time < args.start_time:
+        raise VoiceToolError("end_time cannot be before start_time")
+
+    event = CalendarEvent(
+        title=args.title,
+        description=args.description,
+        start_time=args.start_time,
+        end_time=end_time,
+        location=args.location,
+        completed=False,
+        source=args.source or "voice",
+    )
+    live_db.add(event)
+    live_db.commit()
+    live_db.refresh(event)
+
+    return {
+        "tool": "create_calendar_event",
+        "status": "success",
+        "reply": f"Added {event.title} for {_format_clock_time(event.start_time)}.",
+        "data": {
+            "userId": args.userId,
+            "event": _serialize_calendar_event(event),
+        },
+    }
+
+
+def _tool_list_calendar_events(
+    args: ListCalendarEventsInput,
+    db: Optional[Session],
+) -> Dict[str, Any]:
+    live_db = _require_db(db)
+    if args.date is not None:
+        events = get_events_for_date(live_db, args.date)
+        target_label = args.date.isoformat()
+    else:
+        start_bound = args.from_datetime or datetime.combine(date_type.today(), time_type.min)
+        end_bound = args.to_datetime or datetime.combine(
+            start_bound.date() + timedelta(days=1),
+            time_type.min,
+        )
+        events = (
+            live_db.query(CalendarEvent)
+            .filter(CalendarEvent.start_time < end_bound)
+            .filter((CalendarEvent.end_time.is_(None)) | (CalendarEvent.end_time >= start_bound))
+            .order_by(CalendarEvent.start_time.asc(), CalendarEvent.id.asc())
+            .all()
+        )
+        target_label = start_bound.date().isoformat()
+
+    return {
+        "tool": "list_calendar_events",
+        "status": "success",
+        "reply": f"You have {len(events)} calendar item(s) for {target_label}.",
+        "data": {
+            "userId": args.userId,
+            "date": target_label,
+            "events": [_serialize_calendar_event(event) for event in events],
+        },
+    }
+
+
+def _tool_show_calendar(args: ShowCalendarInput, db: Optional[Session]) -> Dict[str, Any]:
+    result = _tool_mirror_set_screen(MirrorSetScreenInput(screenName="calendar"), db)
+    result["tool"] = "show_calendar"
+    result["reply"] = "Showing your calendar."
+    return result
+
+
+def _tool_hide_calendar(args: HideCalendarInput, db: Optional[Session]) -> Dict[str, Any]:
+    result = _tool_mirror_show_today(MirrorShowTodayInput(), db)
+    result["tool"] = "hide_calendar"
+    result["reply"] = "Hiding the calendar."
+    return result
+
+
+def _sync_weather_into_state() -> Dict[str, Any]:
+    payload = read_current_weather(None, None)
+    weather = payload.get("weather") if isinstance(payload, dict) else None
+    location = payload.get("location") if isinstance(payload, dict) else None
+
+    if weather and location:
+        update_state(
+            {
+                "weather_temperature_c": weather.get("temperature_c"),
+                "weather_description": weather.get("description") or "",
+                "weather_location_label": location.get("label") or "",
+                "weather_region": location.get("region") or location.get("country") or "",
+                "weather_source": location.get("source") or "api",
+                "weather_is_day": weather.get("is_day"),
+            }
+        )
+
+    return payload if isinstance(payload, dict) else {"location": None, "weather": None}
+
+
+def _tool_show_weather(args: ShowWeatherInput, db: Optional[Session]) -> Dict[str, Any]:
+    payload = _sync_weather_into_state()
+    result = _tool_mirror_set_screen(MirrorSetScreenInput(screenName="weather"), db)
+    result["tool"] = "show_weather"
+    result["reply"] = "Showing weather now."
+    result["data"] = {
+        **result["data"],
+        "weather": payload.get("weather"),
+        "location": payload.get("location"),
+    }
+    return result
+
+
+def _tool_hide_weather(args: HideWeatherInput, db: Optional[Session]) -> Dict[str, Any]:
+    result = _tool_mirror_show_today(MirrorShowTodayInput(), db)
+    result["tool"] = "hide_weather"
+    result["reply"] = "Hiding weather."
+    return result
+
+
+def _tool_open_youtube(args: OpenYoutubeInput, db: Optional[Session]) -> Dict[str, Any]:
+    result = _tool_media_open_youtube(MediaOpenYoutubeInput(), db)
+    result["tool"] = "open_youtube"
+    result["reply"] = "Opening YouTube."
+    return result
+
+
+def _tool_screen_on(args: ScreenOnInput, db: Optional[Session]) -> Dict[str, Any]:
+    result = _tool_mirror_wake(MirrorWakeInput(), db)
+    result["tool"] = "screen_on"
+    result["reply"] = "Screen is on."
+    return result
+
+
+def _tool_screen_off(args: ScreenOffInput, db: Optional[Session]) -> Dict[str, Any]:
+    result = _tool_mirror_sleep(MirrorSleepInput(), db)
+    result["tool"] = "screen_off"
+    result["reply"] = "Screen is off."
+    return result
+
+
+def _route_calendar_creation_command(
+    args: RouteHaloCommandInput,
+    db: Session,
+) -> Dict[str, Any]:
+    target_date = _parse_relative_date(args.command)
+    target_time = _parse_time_of_day(args.command)
+    start_time = datetime.combine(target_date, target_time)
+    title = _extract_event_title(args.command)
+    created = _tool_create_calendar_event(
+        CreateCalendarEventInput(
+            userId=args.userId,
+            title=title,
+            start_time=start_time,
+            end_time=start_time + timedelta(hours=1),
+            source="voice_command",
+        ),
+        db,
+    )
+    return {
+        "tool": "route_halo_command",
+        "status": "success",
+        "intent": "create_calendar_event",
+        "reply": created["reply"],
+        "data": {
+            "executed_tool": "create_calendar_event",
+            **created["data"],
+        },
+    }
+
+
+def _tool_route_halo_command(
+    args: RouteHaloCommandInput,
+    db: Optional[Session],
+) -> Dict[str, Any]:
+    live_db = _require_db(db)
+    _get_or_create_user_preference(live_db, args.userId, args.accountName)
+    normalized = _normalize_command(args.command or "")
+
+    if not normalized:
+        raise VoiceToolError("The Halo command is empty.")
+
+    if "time" in normalized and ("what" in normalized or "current" in normalized):
+        result = _tool_get_current_time(GetCurrentTimeInput(), live_db)
+        return {
+            "tool": "route_halo_command",
+            "status": "success",
+            "intent": "get_current_time",
+            "reply": result["reply"],
+            "data": {
+                "executed_tool": "get_current_time",
+                **result["data"],
+            },
+        }
+
+    if (
+        normalized.startswith(("add ", "create ", "schedule "))
+        and ("meeting" in normalized or "appointment" in normalized or "event" in normalized)
+    ):
+        return _route_calendar_creation_command(args, live_db)
+
+    if (
+        ("list" in normalized and "calendar" in normalized)
+        or ("what" in normalized and "calendar" in normalized)
+    ):
+        listed = _tool_list_calendar_events(
+            ListCalendarEventsInput(userId=args.userId, date=date_type.today()),
+            live_db,
+        )
+        return {
+            "tool": "route_halo_command",
+            "status": "success",
+            "intent": "list_calendar_events",
+            "reply": listed["reply"],
+            "data": {
+                "executed_tool": "list_calendar_events",
+                **listed["data"],
+            },
+        }
+
+    if "show" in normalized and "calendar" in normalized:
+        shown = _tool_show_calendar(ShowCalendarInput(), live_db)
+        listed = _tool_list_calendar_events(
+            ListCalendarEventsInput(userId=args.userId, date=date_type.today()),
+            live_db,
+        )
+        count = len(listed["data"]["events"])
+        return {
+            "tool": "route_halo_command",
+            "status": "success",
+            "intent": "show_calendar",
+            "reply": f"Showing your calendar with {count} item(s) today.",
+            "data": {
+                "executed_tool": "show_calendar",
+                "screen_name": shown["data"]["screen_name"],
+                "events": listed["data"]["events"],
+            },
+        }
+
+    if "hide" in normalized and "calendar" in normalized:
+        result = _tool_hide_calendar(HideCalendarInput(), live_db)
+        return {
+            "tool": "route_halo_command",
+            "status": "success",
+            "intent": "hide_calendar",
+            "reply": result["reply"],
+            "data": {
+                "executed_tool": "hide_calendar",
+                **result["data"],
+            },
+        }
+
+    if "show" in normalized and "weather" in normalized:
+        result = _tool_show_weather(ShowWeatherInput(), live_db)
+        return {
+            "tool": "route_halo_command",
+            "status": "success",
+            "intent": "show_weather",
+            "reply": result["reply"],
+            "data": {
+                "executed_tool": "show_weather",
+                **result["data"],
+            },
+        }
+
+    if "hide" in normalized and "weather" in normalized:
+        result = _tool_hide_weather(HideWeatherInput(), live_db)
+        return {
+            "tool": "route_halo_command",
+            "status": "success",
+            "intent": "hide_weather",
+            "reply": result["reply"],
+            "data": {
+                "executed_tool": "hide_weather",
+                **result["data"],
+            },
+        }
+
+    if ("open" in normalized or "show" in normalized) and "youtube" in normalized:
+        result = _tool_open_youtube(OpenYoutubeInput(), live_db)
+        return {
+            "tool": "route_halo_command",
+            "status": "success",
+            "intent": "open_youtube",
+            "reply": result["reply"],
+            "data": {
+                "executed_tool": "open_youtube",
+                **result["data"],
+            },
+        }
+
+    if normalized in {"screen off", "turn screen off", "turn off the screen"} or (
+        "screen" in normalized and "off" in normalized
+    ):
+        result = _tool_screen_off(ScreenOffInput(), live_db)
+        return {
+            "tool": "route_halo_command",
+            "status": "success",
+            "intent": "screen_off",
+            "reply": result["reply"],
+            "data": {
+                "executed_tool": "screen_off",
+                **result["data"],
+            },
+        }
+
+    if normalized in {"screen on", "turn screen on"} or ("screen" in normalized and "on" in normalized):
+        result = _tool_screen_on(ScreenOnInput(), live_db)
+        return {
+            "tool": "route_halo_command",
+            "status": "success",
+            "intent": "screen_on",
+            "reply": result["reply"],
+            "data": {
+                "executed_tool": "screen_on",
+                **result["data"],
+            },
+        }
+
+    raise VoiceToolError("I could not match that HALO command to a supported action.")
+
+
 VOICE_TOOL_SPECS: List[VoiceToolSpec] = [
+    VoiceToolSpec("route_halo_command", "Route a natural-language HALO request to the correct backend action and return a short reply.", RouteHaloCommandInput, _tool_route_halo_command, requires_db=True),
+    VoiceToolSpec("get_current_time", "Get the real current system time.", GetCurrentTimeInput, _tool_get_current_time),
+    VoiceToolSpec("create_calendar_event", "Create a real calendar event in the shared backend calendar.", CreateCalendarEventInput, _tool_create_calendar_event, requires_db=True),
+    VoiceToolSpec("list_calendar_events", "List real calendar events from the shared backend calendar.", ListCalendarEventsInput, _tool_list_calendar_events, requires_db=True),
+    VoiceToolSpec("show_calendar", "Display the calendar widget on the mirror.", ShowCalendarInput, _tool_show_calendar),
+    VoiceToolSpec("hide_calendar", "Hide the calendar widget and return to the today screen.", HideCalendarInput, _tool_hide_calendar),
+    VoiceToolSpec("show_weather", "Display the weather widget on the mirror and refresh weather data.", ShowWeatherInput, _tool_show_weather),
+    VoiceToolSpec("hide_weather", "Hide the weather widget and return to the today screen.", HideWeatherInput, _tool_hide_weather),
+    VoiceToolSpec("open_youtube", "Open the YouTube widget on the mirror.", OpenYoutubeInput, _tool_open_youtube),
+    VoiceToolSpec("screen_on", "Turn the mirror screen on.", ScreenOnInput, _tool_screen_on),
+    VoiceToolSpec("screen_off", "Turn the mirror screen off.", ScreenOffInput, _tool_screen_off),
     VoiceToolSpec("get_today_plan", "Get today's plan from the shared backend calendar, todo, and planner data.", GetTodayPlanInput, _tool_get_today_plan, requires_db=True),
     VoiceToolSpec("get_week_plan", "Get the current week's plan from the shared backend calendar, todo, and planner data.", GetWeekPlanInput, _tool_get_week_plan, requires_db=True),
     VoiceToolSpec("get_month_plan", "Get the current month's plan from the shared backend calendar, todo, and planner data.", GetMonthPlanInput, _tool_get_month_plan, requires_db=True),

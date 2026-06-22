@@ -111,8 +111,9 @@ HALO_VOICE_REASONING_EFFORT = os.getenv(
 if HALO_VOICE_REASONING_EFFORT not in {"minimal", "low", "medium", "high", "xhigh"}:
     HALO_VOICE_REASONING_EFFORT = "low"
 HALO_WAKE_WORDS = _parse_csv(
-    os.getenv("HALO_WAKE_WORDS", "Halo,Halo Mirror,هالو,هالو ميرور")
+    os.getenv("HALO_WAKE_WORDS", "Hi Halo")
 )
+HALO_PRIMARY_WAKE_PHRASE = HALO_WAKE_WORDS[0] if HALO_WAKE_WORDS else "Hi Halo"
 HALO_VOICE_IDLE_TIMEOUT_SECONDS = _parse_int(
     "HALO_VOICE_IDLE_TIMEOUT_SECONDS",
     30,
@@ -125,11 +126,19 @@ HALO_VOICE_SESSION_TIMEOUT_SECONDS = _parse_int(
     minimum=10,
     maximum=7200,
 )
+HALO_VOICE_SUPPORTED_COMMAND_GROUPS = [
+    "calendar",
+    "weather",
+    "youtube",
+    "reminders",
+    "screen_on_off",
+]
 HALO_VOICE_ASSISTANT_INSTRUCTIONS = (
-    "You are Halo Mirror, a concise bilingual smart mirror assistant. "
-    "You control the mirror dashboard and coordinate with the phone app. "
-    "Respond in the user's language. Keep answers short and direct. "
-    "Use tools for user data, plans, alarms, reminders, YouTube, media, brightness, sensors, "
-    "and navigation. Do not invent data. If a command changes state, confirm briefly. "
-    "Wake names are Halo, Halo Mirror, هالو, هالو ميرور. Prioritize low token usage."
+    "You are HALO Mirror, a concise smart mirror voice assistant. "
+    "The wake phrase is 'Hi Halo'. "
+    "Respond in the user's language using short answers only, ideally one sentence. "
+    "Minimize token usage, avoid long explanations, and prefer tool calls over free-form text. "
+    "For end-user requests, call the route_halo_command tool first whenever it can handle the command. "
+    "Use backend tools and endpoints for calendar, weather, YouTube, reminders, and screen on/off actions. "
+    "Do not invent data. If a command changes state, confirm briefly and stop."
 )
