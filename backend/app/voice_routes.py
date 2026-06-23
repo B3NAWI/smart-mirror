@@ -5,7 +5,9 @@ from typing import Deque, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request as FastAPIRequest, status
 from sqlalchemy.orm import Session
+from assistant.behavior_config import SUPPORTED_LANGUAGES
 from assistant.command_router import execute_assistant_text_command
+from assistant.realtime_config import build_realtime_session_config
 from assistant.realtime_client import (
     APIConnectionError,
     APIStatusError,
@@ -15,18 +17,30 @@ from assistant.realtime_client import (
 
 from .auth import require_api_key
 from .config import (
+    HALO_MAX_HISTORY_TURNS,
     HALO_MAX_INPUT_TOKENS,
     HALO_MAX_OUTPUT_TOKENS,
+    HALO_MAX_PROJECT_CONTEXT_CHARS,
+    HALO_FREEFORM_ASSISTANT_ENABLED,
+    HALO_MAX_TOOL_OUTPUT_CHARS,
+    HALO_MAX_USER_TEXT_CHARS,
     HALO_VOICE_ASSISTANT_INSTRUCTIONS,
+    HALO_VOICE_GENERAL_MAX_OUTPUT_TOKENS,
+    HALO_VOICE_DETAILED_MAX_OUTPUT_TOKENS,
     HALO_VOICE_ENABLED,
     HALO_VOICE_IDLE_TIMEOUT_SECONDS,
+    HALO_VOICE_NORMAL_MAX_OUTPUT_TOKENS,
     HALO_PRIMARY_WAKE_PHRASE,
     HALO_VOICE_REASONING_EFFORT,
     HALO_VOICE_SESSION_TIMEOUT_SECONDS,
     HALO_VOICE_SUPPORTED_COMMAND_GROUPS,
+    HALO_VOICE_VAD_PREFIX_PADDING_MS,
+    HALO_VOICE_VAD_SILENCE_DURATION_MS,
+    HALO_VOICE_VAD_THRESHOLD,
     HALO_WAKE_WORDS,
     OPENAI_API_KEY,
     OPENAI_REALTIME_MODEL,
+    OPENAI_TEXT_MODEL,
 )
 from .database import get_db
 from .schemas import (
@@ -176,15 +190,25 @@ def create_voice_session(
     request_payload = payload or VoiceSessionRequest()
     _enforce_voice_session_rate_limit(request, request_payload.client)
 
-    session_request = build_realtime_session_payload(
+    session_config = build_realtime_session_config(
         model=OPENAI_REALTIME_MODEL,
-        instructions=HALO_VOICE_ASSISTANT_INSTRUCTIONS,
-        output_modality=request_payload.output_modality,
         voice=request_payload.voice or DEFAULT_AUDIO_VOICE,
-        max_output_tokens=HALO_MAX_OUTPUT_TOKENS,
+        response_profile=request_payload.response_profile,
+        instructions=HALO_VOICE_ASSISTANT_INSTRUCTIONS,
+    )
+    session_request = build_realtime_session_payload(
+        model=session_config["model"],
+        instructions=session_config["instructions"],
+        output_modality=request_payload.output_modality,
+        voice=session_config["voice"],
+        max_response_output_tokens=session_config["max_response_output_tokens"],
+        tools=session_config["tools"],
         idle_timeout_seconds=HALO_VOICE_IDLE_TIMEOUT_SECONDS,
         session_timeout_seconds=HALO_VOICE_SESSION_TIMEOUT_SECONDS,
         reasoning_effort=HALO_VOICE_REASONING_EFFORT,
+        vad_prefix_padding_ms=HALO_VOICE_VAD_PREFIX_PADDING_MS,
+        vad_silence_duration_ms=HALO_VOICE_VAD_SILENCE_DURATION_MS,
+        vad_threshold=HALO_VOICE_VAD_THRESHOLD,
     )
     session_response = _safe_create_realtime_client_secret(session_request)
 
@@ -208,7 +232,7 @@ def create_voice_session(
         )
 
     effective_voice = (
-        request_payload.voice or DEFAULT_AUDIO_VOICE
+        session_config["voice"]
         if request_payload.output_modality == "audio"
         else None
     )
@@ -219,18 +243,20 @@ def create_voice_session(
         },
         "session": session,
         "metadata": {
-            "model": OPENAI_REALTIME_MODEL,
-            "instructions": HALO_VOICE_ASSISTANT_INSTRUCTIONS,
+            "model": session_config["model"],
+            "instructions": session_config["instructions"],
             "output_modality": request_payload.output_modality,
             "voice": effective_voice,
             "reasoning_effort": HALO_VOICE_REASONING_EFFORT,
             "max_input_tokens": HALO_MAX_INPUT_TOKENS,
-            "max_output_tokens": HALO_MAX_OUTPUT_TOKENS,
+            "max_output_tokens": session_config["max_response_output_tokens"],
             "idle_timeout_seconds": HALO_VOICE_IDLE_TIMEOUT_SECONDS,
             "session_timeout_seconds": HALO_VOICE_SESSION_TIMEOUT_SECONDS,
             "wake_words": HALO_WAKE_WORDS,
             "primary_wake_phrase": HALO_PRIMARY_WAKE_PHRASE,
-            "response_style": "short",
+            "response_style": session_config["response_profile"],
+            "response_profile": session_config["response_profile"],
+            "available_voices": session_config["available_voices"],
             "supported_command_groups": HALO_VOICE_SUPPORTED_COMMAND_GROUPS,
             "tool_listing_path": VOICE_TOOLS_LISTING_PATH,
             "tool_execute_path": VOICE_TOOLS_EXECUTE_PATH,
@@ -245,6 +271,36 @@ def create_voice_session(
 def list_voice_tools():
     return {
         "tools": get_voice_tool_definitions(),
+    }
+
+
+@router.get(
+    "/api/assistant/debug/config",
+    dependencies=[Depends(require_api_key)],
+)
+def get_assistant_debug_config():
+    return {
+        "model": OPENAI_REALTIME_MODEL,
+        "text_model": OPENAI_TEXT_MODEL,
+        "voice_enabled": HALO_VOICE_ENABLED,
+        "freeform_assistant_enabled": HALO_FREEFORM_ASSISTANT_ENABLED,
+        "max_response_output_tokens": HALO_VOICE_NORMAL_MAX_OUTPUT_TOKENS,
+        "general_max_response_output_tokens": HALO_VOICE_GENERAL_MAX_OUTPUT_TOKENS,
+        "detailed_max_response_output_tokens": HALO_VOICE_DETAILED_MAX_OUTPUT_TOKENS,
+        "max_output_tokens": HALO_MAX_OUTPUT_TOKENS,
+        "max_user_text_chars": HALO_MAX_USER_TEXT_CHARS,
+        "history_turns": HALO_MAX_HISTORY_TURNS,
+        "max_tool_output_chars": HALO_MAX_TOOL_OUTPUT_CHARS,
+        "max_project_context_chars": HALO_MAX_PROJECT_CONTEXT_CHARS,
+        "frontend_output_mode": "browser_speech_synthesis",
+        "realtime_frontend_active": False,
+        "supported_languages": SUPPORTED_LANGUAGES,
+        "wake_words": HALO_WAKE_WORDS,
+        "vad": {
+            "silence_duration_ms": HALO_VOICE_VAD_SILENCE_DURATION_MS,
+            "prefix_padding_ms": HALO_VOICE_VAD_PREFIX_PADDING_MS,
+            "threshold": HALO_VOICE_VAD_THRESHOLD,
+        },
     }
 
 
@@ -320,6 +376,7 @@ def run_halo_command(
 
     return {
         "status": "success" if result.get("intent") != "unsupported" else "error",
+        "category": result.get("category", "general_question"),
         "intent": result.get("intent", "unknown"),
         "reply": result.get("response", ""),
         "tool": result.get("selected_tool") or "assistant_text",

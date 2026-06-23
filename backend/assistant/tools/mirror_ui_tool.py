@@ -52,6 +52,13 @@ def hide_news(db: Session) -> dict:
     return control_mirror_widget(db, widget="news", action="hide") | {"tool": "hide_news", "reply": "Hiding news."}
 
 
+def control_screen(*, action: str) -> dict:
+    normalized_action = str(action or "").strip().lower()
+    if normalized_action == "on":
+        return screen_on()
+    return screen_off()
+
+
 def screen_on() -> dict:
     data = _control_screen("on")
     return {

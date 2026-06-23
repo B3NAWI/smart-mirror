@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+os.environ["HALO_FREEFORM_ASSISTANT_ENABLED"] = "false"
 
 from assistant.command_router import execute_assistant_text_command, parse_command
 from assistant.wake_word import contains_wake_phrase
@@ -30,7 +34,7 @@ def main() -> int:
     wake_route = parse_command("Hi Halo, what time is it?")
     assert_true(wake_route.intent == "get_current_time", "English time routing failed")
 
-    arabic_route = parse_command("Hi Halo, قديش الساعة؟")
+    arabic_route = parse_command("Hi Halo، \u0642\u062f\u064a\u0634 \u0627\u0644\u0633\u0627\u0639\u0629\u061f")
     assert_true(arabic_route.intent == "get_current_time", "Arabic time routing failed")
 
     time_result = execute_assistant_text_command(
@@ -47,6 +51,34 @@ def main() -> int:
         text="Hi Halo, add project presentation today at 10 AM",
     )
     assert_true(calendar_result["intent"] == "create_calendar_event", "Calendar creation failed")
+
+    summary_result = execute_assistant_text_command(
+        db=session,
+        user_id="test-user",
+        text="Hi Halo, explain yourself in 3 short sentences.",
+    )
+    assert_true(summary_result["intent"] == "project_info", "Project summary routing failed")
+    assert_true(summary_result["response"].count(".") >= 3, "Project summary was cut short")
+
+    developers_result = execute_assistant_text_command(
+        db=session,
+        user_id="test-user",
+        text="Hi Halo, who developed you?",
+    )
+    assert_true(
+        "Hilal Dallashi" in developers_result["response"],
+        "Developer identity response failed",
+    )
+
+    missing_title_result = execute_assistant_text_command(
+        db=session,
+        user_id="test-user",
+        text="Hi Halo، \u062d\u0637\u0644\u064a \u0645\u0648\u0639\u062f \u0628\u0643\u0631\u0627 \u0627\u0644\u0633\u0627\u0639\u0629 3",
+    )
+    assert_true(
+        missing_title_result["response"] == "\u0634\u0648 \u0627\u0633\u0645 \u0627\u0644\u0645\u0648\u0639\u062f\u061f",
+        "Missing-title clarification failed",
+    )
 
     list_result = execute_assistant_text_command(
         db=session,
@@ -74,6 +106,9 @@ def main() -> int:
     print("English time command works")
     print("Arabic time command works")
     print("Calendar creation works")
+    print("Project summary works")
+    print("Developer identity works")
+    print("Missing event title clarification works")
     print("Calendar listing works")
     print("Mirror widget control works")
     print("Short response behavior works")

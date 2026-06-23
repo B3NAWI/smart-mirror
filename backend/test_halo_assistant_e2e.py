@@ -11,6 +11,7 @@ def build_client():
     os.environ["DATABASE_URL"] = f"sqlite:///{database_path}"
     os.environ["HALO_API_KEY"] = "test-halo-key"
     os.environ["HALO_DEV_API_KEY"] = "halo-local-dev-key"
+    os.environ["HALO_FREEFORM_ASSISTANT_ENABLED"] = "false"
 
     from fastapi.testclient import TestClient
     from app.database import engine, init_database
@@ -31,6 +32,17 @@ def main() -> int:
     headers = {"X-API-Key": "test-halo-key"}
 
     try:
+        debug_config_response = client.get(
+            "/api/assistant/debug/config",
+            headers=headers,
+        )
+        assert_true(debug_config_response.status_code == 200, "Assistant debug config API failed")
+        debug_config_payload = debug_config_response.json()
+        assert_true(
+            debug_config_payload["max_response_output_tokens"] >= 100,
+            "Voice output token limit is too low",
+        )
+
         time_response = client.post(
             "/api/assistant/text",
             headers=headers,
@@ -43,7 +55,7 @@ def main() -> int:
         calendar_response = client.post(
             "/api/assistant/text",
             headers=headers,
-            json={"user_id": "test-user", "text": "Hi Halo, add a meeting tomorrow at 2 PM"},
+            json={"user_id": "test-user", "text": "Hi Halo, add project presentation tomorrow at 2 PM"},
         )
         assert_true(calendar_response.status_code == 200, "Calendar command API failed")
         calendar_payload = calendar_response.json()
@@ -133,6 +145,29 @@ def main() -> int:
         news_feed_response = client.get("/api/news/headlines")
         assert_true(news_feed_response.status_code == 200, "News headlines API failed")
 
+        explain_response = client.post(
+            "/api/assistant/text",
+            headers=headers,
+            json={"user_id": "test-user", "text": "Hi Halo, explain yourself in 3 short sentences."},
+        )
+        assert_true(explain_response.status_code == 200, "Explain yourself API failed")
+        assert_true(
+            explain_response.json()["response"].count(".") >= 3,
+            "Explain yourself response was cut short",
+        )
+
+        developers_response = client.post(
+            "/api/assistant/text",
+            headers=headers,
+            json={"user_id": "test-user", "text": "Hi Halo, who developed you?"},
+        )
+        assert_true(developers_response.status_code == 200, "Who developed you API failed")
+        assert_true(
+            "Hilal Dallashi" in developers_response.json()["response"],
+            "Developer response content failed",
+        )
+
+        print("Assistant debug config API works")
         print("Voice time command API works")
         print("Voice calendar command API works")
         print("Calendar persistence works")
@@ -142,6 +177,8 @@ def main() -> int:
         print("YouTube API flow works")
         print("Screen control API flow works")
         print("News headlines API works")
+        print("Explain yourself API works")
+        print("Developer identity API works")
         return 0
     finally:
         client.close()

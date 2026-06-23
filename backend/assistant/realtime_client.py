@@ -9,19 +9,25 @@ def build_realtime_session_payload(
     instructions: str,
     output_modality: str,
     voice: str | None,
-    max_output_tokens: int,
+    max_response_output_tokens: int,
+    tools: list[dict] | None,
     idle_timeout_seconds: int,
     session_timeout_seconds: int,
     reasoning_effort: str,
+    vad_prefix_padding_ms: int = 500,
+    vad_silence_duration_ms: int = 1500,
+    vad_threshold: float = 0.5,
 ) -> dict:
     session_payload = {
         "type": "realtime",
         "model": model,
         "instructions": instructions,
-        "max_output_tokens": max_output_tokens,
+        "max_response_output_tokens": max_response_output_tokens,
         "output_modalities": [output_modality],
         "reasoning": {"effort": reasoning_effort},
         "truncation": "auto",
+        "tool_choice": "auto",
+        "tools": tools or [],
     }
 
     if output_modality == "audio":
@@ -30,9 +36,11 @@ def build_realtime_session_payload(
                 "turn_detection": {
                     "type": "server_vad",
                     "create_response": True,
-                    "interrupt_response": True,
+                    "interrupt_response": False,
                     "idle_timeout_ms": idle_timeout_seconds * 1000,
-                    "silence_duration_ms": 700,
+                    "prefix_padding_ms": vad_prefix_padding_ms,
+                    "silence_duration_ms": vad_silence_duration_ms,
+                    "threshold": vad_threshold,
                 }
             },
             "output": {"voice": voice or "marin"},
@@ -72,4 +80,3 @@ __all__ = [
     "build_realtime_session_payload",
     "create_realtime_client_secret",
 ]
-

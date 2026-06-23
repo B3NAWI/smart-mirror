@@ -1,35 +1,109 @@
 import { createActivationSoundService } from "./activationSound";
-import { createHaloVoiceTools } from "./haloVoiceTools";
 
-const REALTIME_API_BASE_URL = "https://api.openai.com/v1/realtime/calls";
-const DEFAULT_MODEL = "gpt-realtime-2";
-const DEFAULT_IDLE_TIMEOUT_MS = 15000;
-const POST_RESPONSE_CLOSE_DELAY_MS = 2500;
 const KEYBOARD_SHORTCUT_LABEL = "Ctrl+Shift+H";
-const VOICE_ENABLED_STORAGE_KEY = "halo.voice.enabled.v1";
-const WAKE_WORDS = ["hi halo", "hey halo", "هاي هالو", "هالو"];
-const USER_SCOPED_TOOL_NAMES = new Set([
-  "route_halo_command",
-  "create_calendar_event",
-  "list_calendar_events",
-  "get_today_plan",
-  "get_week_plan",
-  "get_month_plan",
-  "get_work_tasks",
-  "add_reminder",
-  "update_reminder",
-  "delete_reminder",
-  "add_alarm",
-  "update_alarm",
-  "delete_alarm",
-  "get_next_alarm",
-  "summarize_user_day",
-  "phone_send_notification",
-  "phone_create_alarm",
-  "phone_sync_plans",
-  "phone_send_command_to_mirror",
-]);
+const VOICE_ENABLED_STORAGE_KEY = "halo.voice.enabled.v4";
+const MIN_COMMAND_LISTEN_WINDOW_MS = 1500;
+const MAX_COMMAND_LISTEN_WINDOW_MS = 10000;
+const COMMAND_SETTLE_DELAY_MS = 650;
+const COOLDOWN_DELAY_MS = 500;
+const RESTART_DELAY_MS = 350;
+const SPEECH_CHUNK_CHAR_LIMIT = 180;
+const SPEECH_RETRY_LIMIT = 2;
+const SPEECH_CUTOFF_MIN_RATIO = 0.35;
+const ARABIC_SPEECH_PATTERN = /[\u0600-\u06ff]/u;
+const TURKISH_SPEECH_PATTERN = /[çğıöşüİı]/iu;
+const WAKE_WORDS = [
+  "hi halo",
+  "hey halo",
+  "\u0647\u0627\u064a \u0647\u0627\u0644\u0648",
+  "\u0647\u0627\u0644\u0648",
+  "merhaba halo",
+  "halo",
+];
+const STOP_PHRASES = [
+  "halo stop",
+  "stop halo",
+  "\u0647\u0627\u0644\u0648 \u0633\u062a\u0648\u0628",
+  "halo dur",
+];
+export const VOICE_PHASES = {
+  IDLE_WAKE_LISTENING: "IDLE_WAKE_LISTENING",
+  WAKE_DETECTED: "WAKE_DETECTED",
+  ACKNOWLEDGING: "ACKNOWLEDGING",
+  COMMAND_LISTENING: "COMMAND_LISTENING",
+  PROCESSING: "PROCESSING",
+  SPEAKING: "SPEAKING",
+  SPEAKING_COMPLETE: "SPEAKING_COMPLETE",
+  COOLDOWN: "COOLDOWN",
+  STOPPED: "STOPPED",
+  ERROR: "ERROR",
+};
+const STATUS_BY_PHASE = {
+  [VOICE_PHASES.IDLE_WAKE_LISTENING]: "idle",
+  [VOICE_PHASES.WAKE_DETECTED]: "listening",
+  [VOICE_PHASES.ACKNOWLEDGING]: "listening",
+  [VOICE_PHASES.COMMAND_LISTENING]: "listening",
+  [VOICE_PHASES.PROCESSING]: "thinking",
+  [VOICE_PHASES.SPEAKING]: "speaking",
+  [VOICE_PHASES.SPEAKING_COMPLETE]: "speaking",
+  [VOICE_PHASES.COOLDOWN]: "stopped",
+  [VOICE_PHASES.STOPPED]: "stopped",
+  [VOICE_PHASES.ERROR]: "error",
+};
 const ARABIC_LOCALE_PATTERN = /^ar\b/i;
+const TURKISH_LOCALE_PATTERN = /^tr\b/i;
+
+function createInitialDebugState() {
+  return {
+    voicePhase: VOICE_PHASES.STOPPED,
+    wakeDetected: false,
+    wakeDetectedAt: "",
+    currentLanguage: "en",
+    commandCaptured: "",
+    commandCapturedAt: "",
+    category: "",
+    selectedIntent: "",
+    selectedTool: "",
+    realtimeSessionActive: false,
+    realtimeStatus: "inactive",
+    realtimeReason:
+      "Frontend output uses backend text routing plus browser speech synthesis.",
+    outputTokenLimit: 200,
+    generalOutputTokenLimit: 350,
+    detailedOutputTokenLimit: 500,
+    responseStatus: "idle",
+    responseStatusDetails: "Realtime inactive in frontend voice flow.",
+    incompleteDetails: "not_applicable_local_tts",
+    finishReason: "not_applicable_local_tts",
+    backendHttpStatus: null,
+    backendResponseReceivedAt: "",
+    audioPlaybackStatus: "idle",
+    audioDurationMs: 0,
+    audioChunkCount: 0,
+    audioChunksCompleted: 0,
+    audioCutoffSuspected: false,
+    responseCancelled: false,
+    responseCancelledBy: "",
+    sessionCloseReason: "",
+    sessionCloseBlocked: false,
+    lastError: "",
+    apiErrorCode: "",
+    apiErrorMessage: "",
+    outputMode: "browser_speech_synthesis",
+    model: "",
+    vad: {
+      silence_duration_ms: 1500,
+      prefix_padding_ms: 500,
+      threshold: 0.5,
+    },
+    commandListenMinMs: MIN_COMMAND_LISTEN_WINDOW_MS,
+    commandListenMaxMs: MAX_COMMAND_LISTEN_WINDOW_MS,
+    maxUserTextChars: 1000,
+    historyTurns: 3,
+    maxToolOutputChars: 1500,
+    maxProjectContextChars: 6000,
+  };
+}
 
 function createInitialSnapshot() {
   return {
@@ -39,8 +113,10 @@ function createInitialSnapshot() {
     shortcutLabel: KEYBOARD_SHORTCUT_LABEL,
     voiceEnabled: true,
     wakeModeActive: false,
+    conversationModeActive: false,
     wakeEngine: "manual",
     microphonePermission: "prompt",
+    debug: createInitialDebugState(),
   };
 }
 
@@ -58,76 +134,223 @@ function normalizeTranscript(value) {
     .trim();
 }
 
-function transcriptContainsWakeWord(value) {
+function transcriptContainsAnyPhrase(value, phrases) {
+  const normalized = normalizeTranscript(value);
+  return Boolean(normalized) && phrases.some((phrase) => normalized.includes(phrase));
+}
+
+function stripWakePhrase(value) {
   const normalized = normalizeTranscript(value);
   if (!normalized) {
-    return false;
+    return "";
   }
 
-  return WAKE_WORDS.some((wakeWord) => normalized.includes(wakeWord));
+  for (const wakeWord of [...WAKE_WORDS].sort((left, right) => right.length - left.length)) {
+    const index = normalized.indexOf(wakeWord);
+    if (index < 0) {
+      continue;
+    }
+    return normalized.slice(index + wakeWord.length).trim();
+  }
+
+  return "";
+}
+
+function isArabicLocale() {
+  const localeCandidates = [];
+
+  if (typeof document !== "undefined") {
+    localeCandidates.push(document.documentElement?.lang || "");
+  }
+
+  if (typeof navigator !== "undefined") {
+    localeCandidates.push(...(Array.isArray(navigator.languages) ? navigator.languages : []));
+    localeCandidates.push(navigator.language || "");
+  }
+
+  return localeCandidates.some((locale) => ARABIC_LOCALE_PATTERN.test(locale || ""));
+}
+
+function isTurkishLocale() {
+  const localeCandidates = [];
+
+  if (typeof document !== "undefined") {
+    localeCandidates.push(document.documentElement?.lang || "");
+  }
+
+  if (typeof navigator !== "undefined") {
+    localeCandidates.push(...(Array.isArray(navigator.languages) ? navigator.languages : []));
+    localeCandidates.push(navigator.language || "");
+  }
+
+  return localeCandidates.some((locale) => TURKISH_LOCALE_PATTERN.test(locale || ""));
+}
+
+function transcriptLooksArabic(value) {
+  return ARABIC_SPEECH_PATTERN.test(String(value || ""));
+}
+
+function transcriptLooksTurkish(value) {
+  const transcript = String(value || "");
+  return (
+    TURKISH_SPEECH_PATTERN.test(transcript) ||
+    /\b(saat|kaç|kac|merhaba|geliştirdi|gelistirdi|nedir|takvim|hava durumu|ekran|göster|goster|gizle|aç|ac|kapat)\b/i.test(
+      transcript
+    )
+  );
+}
+
+function detectDominantLanguage(value = "") {
+  const transcript = String(value || "");
+  if (transcriptLooksArabic(transcript)) {
+    return "ar";
+  }
+  if (transcriptLooksTurkish(transcript)) {
+    return "tr";
+  }
+  if (!transcript.trim()) {
+    if (isArabicLocale()) {
+      return "ar";
+    }
+    if (isTurkishLocale()) {
+      return "tr";
+    }
+  }
+  return "en";
+}
+
+function getPreferredRecognitionLanguage(transcript = "") {
+  const language = detectDominantLanguage(transcript);
+  if (language === "ar") {
+    return "ar-SA";
+  }
+  if (language === "tr") {
+    return "tr-TR";
+  }
+  return "en-US";
+}
+
+function buildWakeGreeting(language = "en") {
+  if (language === "ar") {
+    return "\u0623\u0643\u064a\u062f\u060c \u0633\u0627\u0645\u0639\u0643.";
+  }
+  if (language === "tr") {
+    return "Evet, dinliyorum.";
+  }
+  return "Yes, I'm listening.";
+}
+
+function selectSpeechVoice(language = "en") {
+  if (typeof window === "undefined" || !window.speechSynthesis?.getVoices) {
+    return null;
+  }
+
+  const voices = window.speechSynthesis.getVoices();
+  if (!Array.isArray(voices) || voices.length === 0) {
+    return null;
+  }
+
+  const preferredPrefix =
+    language === "ar" ? "ar" : language === "tr" ? "tr" : "en";
+
+  return (
+    voices.find((voice) => String(voice?.lang || "").toLowerCase().startsWith(`${preferredPrefix}-`)) ||
+    voices.find((voice) => String(voice?.lang || "").toLowerCase().startsWith(preferredPrefix)) ||
+    voices.find((voice) => voice?.default) ||
+    null
+  );
+}
+
+function buildRecognitionErrorMessage(errorCode) {
+  if (errorCode === "not-allowed" || errorCode === "service-not-allowed") {
+    return "Error: microphone unavailable";
+  }
+  if (errorCode === "audio-capture") {
+    return "Error: microphone unavailable";
+  }
+  return "Voice recognition is unavailable right now.";
+}
+
+function formatTimestamp(value = Date.now()) {
+  return new Date(value).toISOString();
 }
 
 function debugLog(message, details) {
   if (typeof console === "undefined" || typeof console.info !== "function") {
     return;
   }
+
   if (typeof details === "undefined") {
     console.info(`[HALO Voice] ${message}`);
     return;
   }
+
   console.info(`[HALO Voice] ${message}`, details);
 }
 
-function isArabicLocale() {
-  const locale =
-    (Array.isArray(navigator.languages) && navigator.languages[0]) ||
-    navigator.language ||
-    "";
-  return ARABIC_LOCALE_PATTERN.test(locale);
+function buildSpeechChunks(text) {
+  const normalizedText = String(text || "").replace(/\s+/g, " ").trim();
+  if (!normalizedText) {
+    return [];
+  }
+
+  const sentencePattern = new RegExp("[^.!?\\u061f\\u060c\\u061b]+[.!?\\u061f\\u060c\\u061b]?", "gu");
+  const sentences =
+    normalizedText.match(sentencePattern)?.map((item) => item.trim()).filter(Boolean) ||
+    [normalizedText];
+
+  const chunks = [];
+  let currentChunk = "";
+
+  for (const sentence of sentences) {
+    const nextChunk = currentChunk ? `${currentChunk} ${sentence}` : sentence;
+    if (nextChunk.length <= SPEECH_CHUNK_CHAR_LIMIT) {
+      currentChunk = nextChunk;
+      continue;
+    }
+
+    if (currentChunk) {
+      chunks.push(currentChunk);
+    }
+
+    if (sentence.length <= SPEECH_CHUNK_CHAR_LIMIT) {
+      currentChunk = sentence;
+      continue;
+    }
+
+    let remaining = sentence;
+    while (remaining.length > SPEECH_CHUNK_CHAR_LIMIT) {
+      chunks.push(remaining.slice(0, SPEECH_CHUNK_CHAR_LIMIT).trim());
+      remaining = remaining.slice(SPEECH_CHUNK_CHAR_LIMIT).trim();
+    }
+    currentChunk = remaining;
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
 }
 
-function buildWakeGreeting() {
-  const englishGreetings = ["Yes, I'm listening.", "Hi, how can I help?"];
-  const arabicGreetings = ["نعم، أنا أسمعك.", "أهلًا، كيف أساعدك؟"];
-  const greetings = isArabicLocale() ? arabicGreetings : englishGreetings;
-  return greetings[Math.floor(Math.random() * greetings.length)];
+function estimateSpeechDurationMs(text) {
+  const words = String(text || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+  return Math.max(900, words * 150);
 }
 
-async function speakWakeGreeting() {
-  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+function dispatchVoiceToolEvent(detail) {
+  if (typeof window === "undefined") {
     return;
   }
 
-  const text = buildWakeGreeting();
-  const lang = isArabicLocale() ? "ar-SA" : "en-US";
-
-  await new Promise((resolve) => {
-    try {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = lang;
-      utterance.rate = 1;
-      utterance.pitch = 1;
-      utterance.onend = resolve;
-      utterance.onerror = resolve;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(utterance);
-    } catch {
-      resolve();
-    }
-  });
-}
-
-function safeParseJson(value) {
-  if (!value) {
-    return {};
-  }
-
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  window.dispatchEvent(
+    new CustomEvent("halo:voice-tool", {
+      detail,
+    })
+  );
 }
 
 async function parseErrorMessage(response) {
@@ -137,7 +360,7 @@ async function parseErrorMessage(response) {
       return payload.detail.trim();
     }
   } catch {
-    // Ignore JSON parsing failures here.
+    // Ignore parsing issues and fall back to status text.
   }
 
   if (typeof response.statusText === "string" && response.statusText.trim()) {
@@ -145,10 +368,6 @@ async function parseErrorMessage(response) {
   }
 
   return `Request failed with status ${response.status}`;
-}
-
-function hasAudioTrack(stream) {
-  return Boolean(stream && stream.getAudioTracks().some((track) => track.readyState === "live"));
 }
 
 export function createHaloVoiceClient({
@@ -159,33 +378,29 @@ export function createHaloVoiceClient({
   const listeners = new Set();
   const snapshot = createInitialSnapshot();
   const activationSound = createActivationSoundService();
-  const haloVoiceTools = createHaloVoiceTools({
-    apiBaseUrl,
-    apiKey,
-    getUserContext,
-  });
-
-  // Local wake detection stays modular so we can swap Web Speech for Porcupine or Vosk later.
   const SpeechRecognitionClass =
     typeof window !== "undefined"
       ? window.SpeechRecognition || window.webkitSpeechRecognition
       : null;
 
   let isStarted = false;
-  let isConnecting = false;
-  let recognition = null;
-  let recognitionRestartTimer = null;
-  let idleTimer = null;
-  let pendingToolExecution = Promise.resolve();
-  let audioElement = null;
-  let dataChannel = null;
-  let peerConnection = null;
-  let localStream = null;
-  let sessionMetadata = null;
-  let shouldResumeWakeRecognition = true;
-  let isManualWakeMode = !SpeechRecognitionClass;
-  let microphonePermissionRequested = false;
-  let postResponseCloseTimer = null;
+  let voicePhase = VOICE_PHASES.STOPPED;
+  let wakeRecognition = null;
+  let commandRecognition = null;
+  let stopRecognition = null;
+  let commandMinWindowTimeoutId = null;
+  let commandMaxWindowTimeoutId = null;
+  let commandSettleTimeoutId = null;
+  let cooldownTimeoutId = null;
+  let recognitionRestartTimeoutId = null;
+  let microphonePermissionRequest = null;
+  let commandAbortController = null;
+  let isRecognitionTransitioning = false;
+  let lastErrorMessage = "";
+  let activeSpeechRunId = 0;
+  let activeCommandSessionId = 0;
+  let preferredCommandLanguage = getPreferredRecognitionLanguage();
+  let conversationModeActive = false;
 
   snapshot.wakeRecognitionSupported = Boolean(SpeechRecognitionClass);
   snapshot.voiceEnabled = readPersistedVoiceEnabled();
@@ -209,597 +424,1116 @@ export function createHaloVoiceClient({
 
   function persistVoiceEnabled(value) {
     snapshot.voiceEnabled = value;
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem(VOICE_ENABLED_STORAGE_KEY, value ? "true" : "false");
-      } catch {
-        // Ignore storage failures and keep working in memory.
-      }
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(VOICE_ENABLED_STORAGE_KEY, value ? "true" : "false");
+    } catch {
+      // Ignore localStorage failures and continue in memory.
     }
   }
 
   function emit() {
-    const nextSnapshot = { ...snapshot };
+    const nextSnapshot = { ...snapshot, debug: { ...snapshot.debug, vad: { ...snapshot.debug.vad } } };
     listeners.forEach((listener) => listener(nextSnapshot));
   }
 
-  function setStatus(status, errorMessage = "") {
-    snapshot.status = status;
-    snapshot.errorMessage = errorMessage;
+  function updateSnapshot(nextValues) {
+    Object.assign(snapshot, nextValues);
     emit();
   }
 
-  function clearIdleTimer() {
-    if (idleTimer) {
-      window.clearTimeout(idleTimer);
-      idleTimer = null;
+  function updateDebug(nextValues) {
+    snapshot.debug = {
+      ...snapshot.debug,
+      ...nextValues,
+      vad: {
+        ...snapshot.debug.vad,
+        ...(nextValues?.vad || {}),
+      },
+    };
+    emit();
+  }
+
+  function setConversationMode(nextValue) {
+    conversationModeActive = Boolean(nextValue);
+    updateSnapshot({
+      conversationModeActive,
+    });
+  }
+
+  function setPhase(nextPhase, { errorMessage = "", wakeModeActive } = {}) {
+    voicePhase = nextPhase;
+    lastErrorMessage = errorMessage;
+    updateSnapshot({
+      status: STATUS_BY_PHASE[nextPhase] || "idle",
+      errorMessage,
+      wakeModeActive:
+        typeof wakeModeActive === "boolean" ? wakeModeActive : snapshot.wakeModeActive,
+      wakeRecognitionSupported: Boolean(SpeechRecognitionClass),
+      wakeEngine: SpeechRecognitionClass ? "web-speech" : "manual",
+    });
+    updateDebug({
+      voicePhase: nextPhase,
+      lastError: errorMessage || snapshot.debug.lastError,
+    });
+    debugLog("voice state changed", {
+      state: nextPhase,
+      status: snapshot.status,
+      wakeModeActive: snapshot.wakeModeActive,
+    });
+  }
+
+  function clearTimers() {
+    if (commandMinWindowTimeoutId) {
+      window.clearTimeout(commandMinWindowTimeoutId);
+      commandMinWindowTimeoutId = null;
+    }
+    if (commandMaxWindowTimeoutId) {
+      window.clearTimeout(commandMaxWindowTimeoutId);
+      commandMaxWindowTimeoutId = null;
+    }
+    if (commandSettleTimeoutId) {
+      window.clearTimeout(commandSettleTimeoutId);
+      commandSettleTimeoutId = null;
+    }
+    if (cooldownTimeoutId) {
+      window.clearTimeout(cooldownTimeoutId);
+      cooldownTimeoutId = null;
+    }
+    if (recognitionRestartTimeoutId) {
+      window.clearTimeout(recognitionRestartTimeoutId);
+      recognitionRestartTimeoutId = null;
     }
   }
 
-  function clearPostResponseCloseTimer() {
-    if (postResponseCloseTimer) {
-      window.clearTimeout(postResponseCloseTimer);
-      postResponseCloseTimer = null;
+  async function fetchDebugConfig() {
+    try {
+      const response = await fetch(buildApiUrl(apiBaseUrl, "/api/assistant/debug/config"), {
+        headers: {
+          "X-API-Key": apiKey,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(await parseErrorMessage(response));
+      }
+      const payload = await response.json();
+      updateDebug({
+        model: String(payload?.model || "").trim(),
+        outputTokenLimit: Number(payload?.max_response_output_tokens) || snapshot.debug.outputTokenLimit,
+        generalOutputTokenLimit:
+          Number(payload?.general_max_response_output_tokens) ||
+          snapshot.debug.generalOutputTokenLimit,
+        detailedOutputTokenLimit:
+          Number(payload?.detailed_max_response_output_tokens) ||
+          snapshot.debug.detailedOutputTokenLimit,
+        maxUserTextChars:
+          Number(payload?.max_user_text_chars) || snapshot.debug.maxUserTextChars,
+        historyTurns: Number(payload?.history_turns) || snapshot.debug.historyTurns,
+        maxToolOutputChars:
+          Number(payload?.max_tool_output_chars) || snapshot.debug.maxToolOutputChars,
+        maxProjectContextChars:
+          Number(payload?.max_project_context_chars) || snapshot.debug.maxProjectContextChars,
+        realtimeSessionActive: Boolean(payload?.realtime_frontend_active),
+        realtimeStatus: payload?.realtime_frontend_active ? "active" : "inactive",
+        realtimeReason:
+          String(payload?.frontend_output_mode || "").trim() || snapshot.debug.realtimeReason,
+        outputMode:
+          String(payload?.frontend_output_mode || "").trim() || snapshot.debug.outputMode,
+        vad: {
+          silence_duration_ms:
+            Number(payload?.vad?.silence_duration_ms) || snapshot.debug.vad.silence_duration_ms,
+          prefix_padding_ms:
+            Number(payload?.vad?.prefix_padding_ms) || snapshot.debug.vad.prefix_padding_ms,
+          threshold: Number(payload?.vad?.threshold) || snapshot.debug.vad.threshold,
+        },
+      });
+      debugLog("realtime inspection", {
+        realtimeSessionActive: Boolean(payload?.realtime_frontend_active),
+        model: payload?.model || "",
+        maxResponseOutputTokens: payload?.max_response_output_tokens,
+        vad: payload?.vad || {},
+      });
+    } catch (error) {
+      debugLog("assistant debug config unavailable", {
+        message: error instanceof Error ? error.message : "Unknown debug config error.",
+      });
     }
-  }
-
-  function scheduleIdleTimeout() {
-    clearIdleTimer();
-    if (!peerConnection) {
-      return;
-    }
-
-    const timeoutSeconds = Number(sessionMetadata?.idle_timeout_seconds) || 15;
-    idleTimer = window.setTimeout(() => {
-      debugLog("session ended", { reason: "idle-timeout" });
-      void stopListening();
-    }, Math.min(timeoutSeconds * 1000, DEFAULT_IDLE_TIMEOUT_MS));
-  }
-
-  function resetActivityTimer() {
-    clearPostResponseCloseTimer();
-    if (peerConnection) {
-      scheduleIdleTimeout();
-    }
-  }
-
-  function schedulePostResponseClose() {
-    clearPostResponseCloseTimer();
-    if (!peerConnection) {
-      return;
-    }
-    postResponseCloseTimer = window.setTimeout(() => {
-      debugLog("session ended", { reason: "response-complete" });
-      void stopListening();
-    }, POST_RESPONSE_CLOSE_DELAY_MS);
   }
 
   async function ensureMicrophonePermission() {
-    if (
-      microphonePermissionRequested ||
-      !navigator.mediaDevices?.getUserMedia ||
-      typeof window === "undefined"
-    ) {
+    if (!navigator.mediaDevices?.getUserMedia || typeof window === "undefined") {
       return;
     }
 
-    microphonePermissionRequested = true;
-    try {
-      const permissionStream = await navigator.mediaDevices.getUserMedia({
+    if (snapshot.microphonePermission === "granted") {
+      return;
+    }
+
+    if (microphonePermissionRequest) {
+      return microphonePermissionRequest;
+    }
+
+    microphonePermissionRequest = navigator.mediaDevices
+      .getUserMedia({
         audio: {
           channelCount: 1,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
         },
+      })
+      .then((permissionStream) => {
+        snapshot.microphonePermission = "granted";
+        permissionStream.getTracks().forEach((track) => track.stop());
+        emit();
+        debugLog("microphone permission granted");
+      })
+      .catch((error) => {
+        snapshot.microphonePermission = "denied";
+        emit();
+        debugLog("microphone permission denied");
+        throw error;
+      })
+      .finally(() => {
+        microphonePermissionRequest = null;
       });
-      snapshot.microphonePermission = "granted";
-      permissionStream.getTracks().forEach((track) => track.stop());
-      debugLog("microphone permission granted");
-    } catch (error) {
-      snapshot.microphonePermission = "denied";
-      debugLog("microphone permission denied");
-      throw error;
-    } finally {
-      emit();
+
+    return microphonePermissionRequest;
+  }
+
+  function stopWakeRecognition() {
+    if (!wakeRecognition) {
+      return;
+    }
+    const recognition = wakeRecognition;
+    wakeRecognition = null;
+    try {
+      recognition.onresult = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      recognition.stop();
+    } catch {
+      // Best-effort only.
+    }
+    updateSnapshot({ wakeModeActive: false });
+  }
+
+  function stopCommandRecognition() {
+    if (!commandRecognition) {
+      return;
+    }
+    const recognition = commandRecognition;
+    commandRecognition = null;
+    try {
+      recognition.onresult = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      recognition.stop();
+    } catch {
+      // Best-effort only.
     }
   }
 
-  function stopWakeRecognition({ manualOnly = false } = {}) {
-    clearTimeout(recognitionRestartTimer);
-    recognitionRestartTimer = null;
-    isManualWakeMode = manualOnly || !SpeechRecognitionClass;
+  function stopStopRecognition() {
+    if (!stopRecognition) {
+      return;
+    }
+    const recognition = stopRecognition;
+    stopRecognition = null;
+    try {
+      recognition.onresult = null;
+      recognition.onerror = null;
+      recognition.onend = null;
+      recognition.stop();
+    } catch {
+      // Best-effort only.
+    }
+  }
 
-    if (recognition) {
-      try {
-        recognition.onresult = null;
-        recognition.onerror = null;
-        recognition.onend = null;
-        recognition.stop();
-      } catch {
-        // Wake recognition is best-effort only.
+  function stopAllRecognition() {
+    stopWakeRecognition();
+    stopCommandRecognition();
+    stopStopRecognition();
+  }
+
+  function cancelSpeech({ reason = "", markCancelled = true } = {}) {
+    activeSpeechRunId += 1;
+    if (markCancelled) {
+      updateDebug({
+        responseCancelled: true,
+        responseCancelledBy: reason || "manual",
+        sessionCloseReason: reason || snapshot.debug.sessionCloseReason,
+        audioPlaybackStatus: "cancelled",
+      });
+    }
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      return;
+    }
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      // Ignore speech cancellation issues.
+    }
+  }
+
+  function cancelCommandRequest() {
+    if (!commandAbortController) {
+      return;
+    }
+    commandAbortController.abort();
+    commandAbortController = null;
+  }
+
+  function buildRecognitionInstance({ continuous, interimResults, lang }) {
+    if (!SpeechRecognitionClass) {
+      return null;
+    }
+
+    const recognition = new SpeechRecognitionClass();
+    recognition.continuous = continuous;
+    recognition.interimResults = interimResults;
+    recognition.maxAlternatives = 1;
+    recognition.lang = lang || getPreferredRecognitionLanguage();
+    return recognition;
+  }
+
+  async function returnToWakeMode({ reason = "complete", fromStoppedState = false } = {}) {
+    clearTimers();
+    cancelCommandRequest();
+    stopCommandRecognition();
+    stopStopRecognition();
+
+    if (!isStarted) {
+      return;
+    }
+
+    updateDebug({
+      sessionCloseReason: reason,
+      sessionCloseBlocked: false,
+      responseStatus: "completed",
+    });
+
+    if (!snapshot.voiceEnabled) {
+      setPhase(VOICE_PHASES.STOPPED, { wakeModeActive: false });
+      return;
+    }
+
+    if (!SpeechRecognitionClass) {
+      setPhase(VOICE_PHASES.STOPPED, {
+        wakeModeActive: false,
+        errorMessage: "Voice recognition is unavailable in this browser.",
+      });
+      return;
+    }
+
+    setPhase(fromStoppedState ? VOICE_PHASES.STOPPED : VOICE_PHASES.COOLDOWN, {
+      wakeModeActive: false,
+    });
+
+    cooldownTimeoutId = window.setTimeout(() => {
+      if (conversationModeActive) {
+        debugLog("returned to conversation mode", { reason });
+        void startCommandListening({ source: "conversation-followup" });
+        return;
       }
-      recognition = null;
+
+      debugLog("returned to wake mode", { reason });
+      void startWakeListening({ restartReason: reason });
+    }, fromStoppedState ? COOLDOWN_DELAY_MS : RESTART_DELAY_MS);
+  }
+
+  function handleApiFailure(errorMessage, errorCode = "") {
+    const uiError = "API limit/error detected. Check console.";
+    updateDebug({
+      responseStatus: "error",
+      responseStatusDetails: errorMessage,
+      lastError: errorMessage,
+      apiErrorCode: errorCode,
+      apiErrorMessage: errorMessage,
+    });
+    setPhase(VOICE_PHASES.ERROR, {
+      errorMessage: uiError,
+      wakeModeActive: false,
+    });
+  }
+
+  function handleRecognitionFailure(errorMessage) {
+    updateDebug({
+      responseStatus: "error",
+      lastError: errorMessage,
+      apiErrorCode: "",
+      apiErrorMessage: errorMessage,
+    });
+    setPhase(VOICE_PHASES.ERROR, {
+      errorMessage,
+      wakeModeActive: false,
+    });
+  }
+
+  async function speakQueuedChunks(chunks, { nextStep }) {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      updateDebug({
+        audioPlaybackStatus: "unavailable",
+        audioDurationMs: 0,
+      });
+      debugLog("response audio started", { fallback: "none" });
+      debugLog("response audio ended", { fallback: "none" });
+      if (nextStep !== "wake-ack") {
+        setPhase(VOICE_PHASES.SPEAKING_COMPLETE, { wakeModeActive: false });
+        await returnToWakeMode({ reason: nextStep });
+      }
+      return;
     }
 
-    snapshot.wakeRecognitionSupported = !isManualWakeMode && Boolean(SpeechRecognitionClass);
-    snapshot.wakeModeActive = false;
-    emit();
+    const speechRunId = ++activeSpeechRunId;
+    const queue = chunks.map((chunkText) => ({ text: chunkText, attempt: 0 }));
+    const totalStartTime = performance.now();
+    let completedChunks = 0;
+    let cutoffSuspected = false;
+
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume?.();
+    } catch {
+      // Best-effort only.
+    }
+
+    updateDebug({
+      audioPlaybackStatus: "queued",
+      audioChunkCount: queue.length,
+      audioChunksCompleted: 0,
+      audioDurationMs: 0,
+      audioCutoffSuspected: false,
+      responseCancelled: false,
+      responseCancelledBy: "",
+    });
+    void startStopPhraseListening();
+
+    while (queue.length) {
+      if (speechRunId !== activeSpeechRunId) {
+        return;
+      }
+
+      const chunk = queue.shift();
+      const chunkText = String(chunk?.text || "").trim();
+      if (!chunkText) {
+        continue;
+      }
+
+      await new Promise((resolve) => {
+        let finished = false;
+        let lastBoundaryCharIndex = 0;
+        const chunkStartTime = performance.now();
+
+        const finish = ({ detectedCutoff = false, remainder = "" } = {}) => {
+          if (finished) {
+            return;
+          }
+          finished = true;
+
+          const durationMs = Math.round(performance.now() - chunkStartTime);
+          const expectedDurationMs = estimateSpeechDurationMs(chunkText);
+          const shouldRetry =
+            detectedCutoff &&
+            remainder &&
+            chunk.attempt < SPEECH_RETRY_LIMIT &&
+            speechRunId === activeSpeechRunId;
+
+          if (shouldRetry) {
+            cutoffSuspected = true;
+            queue.unshift({ text: remainder, attempt: chunk.attempt + 1 });
+          }
+
+          completedChunks += shouldRetry ? 0 : 1;
+          updateDebug({
+            audioPlaybackStatus: shouldRetry ? "retrying-cutoff" : "speaking",
+            audioChunksCompleted: completedChunks,
+            audioDurationMs: Math.round(performance.now() - totalStartTime),
+            audioCutoffSuspected: cutoffSuspected,
+          });
+          debugLog(shouldRetry ? "speech cutoff suspected" : "response chunk finished", {
+            durationMs,
+            expectedDurationMs,
+            chunkLength: chunkText.length,
+            boundaryCharIndex: lastBoundaryCharIndex,
+            attempt: chunk.attempt,
+            remainderLength: remainder.length,
+          });
+          resolve();
+        };
+
+        const utterance = new SpeechSynthesisUtterance(chunkText);
+        const speechLanguage = detectDominantLanguage(chunkText);
+        utterance.lang =
+          speechLanguage === "ar" ? "ar-SA" : speechLanguage === "tr" ? "tr-TR" : "en-US";
+        utterance.voice = selectSpeechVoice(speechLanguage);
+        utterance.rate = speechLanguage === "ar" ? 0.96 : 0.98;
+        utterance.pitch = 1;
+        utterance.onstart = () => {
+          updateDebug({
+            audioPlaybackStatus: "speaking",
+          });
+          debugLog("response.audio.delta", {
+            chunkIndex: completedChunks + 1,
+            chunkCount: chunks.length,
+          });
+          debugLog("response audio started", {
+            chunk: completedChunks + 1,
+            chunkCount: chunks.length,
+            chunkText: chunkText.slice(0, 120),
+          });
+        };
+        utterance.onboundary = (event) => {
+          if (typeof event?.charIndex === "number") {
+            lastBoundaryCharIndex = Math.max(lastBoundaryCharIndex, event.charIndex);
+          }
+        };
+        utterance.onend = () => {
+          const durationMs = Math.round(performance.now() - chunkStartTime);
+          const expectedDurationMs = estimateSpeechDurationMs(chunkText);
+          const cutoffDetected =
+            lastBoundaryCharIndex > 0 &&
+            lastBoundaryCharIndex < chunkText.length - 12 &&
+            durationMs < expectedDurationMs * SPEECH_CUTOFF_MIN_RATIO;
+          const remainder = cutoffDetected
+            ? chunkText.slice(lastBoundaryCharIndex).trim()
+            : "";
+          debugLog("response audio ended", {
+            durationMs,
+            expectedDurationMs,
+            boundaryCharIndex: lastBoundaryCharIndex,
+            cutoffDetected,
+          });
+          finish({ detectedCutoff: cutoffDetected, remainder });
+        };
+        utterance.onerror = (event) => {
+          updateDebug({
+            audioPlaybackStatus: "error",
+            lastError: "Browser speech playback failed.",
+            responseStatus: "error",
+            responseStatusDetails:
+              typeof event?.error === "string" ? event.error : "speech-error",
+          });
+          debugLog("response audio ended", {
+            reason: "speech-error",
+            error: event?.error,
+          });
+          finish();
+        };
+
+        try {
+          window.speechSynthesis.speak(utterance);
+        } catch {
+          finish();
+        }
+      });
+    }
+
+    stopStopRecognition();
+    if (speechRunId !== activeSpeechRunId) {
+      return;
+    }
+
+    updateDebug({
+      audioPlaybackStatus: "ended",
+      audioDurationMs: Math.round(performance.now() - totalStartTime),
+      audioChunksCompleted: completedChunks,
+      audioCutoffSuspected: cutoffSuspected,
+    });
+    debugLog("response.audio.done", {
+      chunkCount: chunks.length,
+      audioDurationMs: Math.round(performance.now() - totalStartTime),
+      cutoffSuspected,
+    });
+
+    if (nextStep !== "wake-ack") {
+      setPhase(VOICE_PHASES.SPEAKING_COMPLETE, { wakeModeActive: false });
+      await returnToWakeMode({ reason: nextStep });
+    }
   }
 
-  function restartWakeRecognitionSoon() {
-    clearTimeout(recognitionRestartTimer);
-    recognitionRestartTimer = window.setTimeout(() => {
-      void startWakeRecognition();
-    }, 400);
-  }
-
-  async function startWakeRecognition() {
-    if (
-      !isStarted ||
-      !snapshot.voiceEnabled ||
-      !SpeechRecognitionClass ||
-      peerConnection ||
-      isConnecting
-    ) {
+  async function speakReply(text, { nextStep = "open-mic" } = {}) {
+    const responseText = String(text || "").trim();
+    if (!responseText) {
+      if (nextStep !== "wake-ack") {
+        await returnToWakeMode({ reason: nextStep });
+      }
       return;
     }
 
     stopWakeRecognition();
+    stopCommandRecognition();
+    setPhase(VOICE_PHASES.SPEAKING, { wakeModeActive: false });
+    updateDebug({
+      responseStatus: "speaking",
+      responseStatusDetails: "Assistant reply is being spoken locally.",
+    });
+    await speakQueuedChunks(buildSpeechChunks(responseText), { nextStep });
+  }
+
+  async function runVoiceCommand(commandText, { source = "open-mic" } = {}) {
+    const normalizedCommand = String(commandText || "").trim();
+    if (!normalizedCommand) {
+      await returnToWakeMode({ reason: "empty-command" });
+      return;
+    }
+
+    stopWakeRecognition();
+    stopCommandRecognition();
+    stopStopRecognition();
+    clearTimers();
+    cancelCommandRequest();
+
+    const userContext = getUserContext() || {};
+    const commandSessionId = ++activeCommandSessionId;
+    commandAbortController = new AbortController();
+
+    setPhase(VOICE_PHASES.PROCESSING, { wakeModeActive: false });
+    updateDebug({
+      commandCaptured: normalizedCommand.slice(0, 200),
+      commandCapturedAt: formatTimestamp(),
+      currentLanguage: detectDominantLanguage(normalizedCommand),
+      responseStatus: "pending",
+      responseStatusDetails: "Waiting for backend assistant response.",
+      backendHttpStatus: null,
+      backendResponseReceivedAt: "",
+      lastError: "",
+      apiErrorCode: "",
+      apiErrorMessage: "",
+      responseCancelled: false,
+      responseCancelledBy: "",
+      incompleteDetails: "not_applicable_local_tts",
+      finishReason: "waiting_for_backend",
+    });
+    debugLog("command captured", { source, command: normalizedCommand.slice(0, 160) });
+
+    try {
+      const response = await fetch(buildApiUrl(apiBaseUrl, "/api/voice/command"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": apiKey,
+        },
+        body: JSON.stringify({
+          command: normalizedCommand,
+          user_id: String(userContext.userId || userContext.accountId || "").trim() || "mirror-local",
+          account_name: String(userContext.accountName || "").trim() || undefined,
+        }),
+        signal: commandAbortController.signal,
+      });
+
+      if (!response.ok) {
+        const errorMessage = await parseErrorMessage(response);
+        const errorCode = String(response.status || "");
+        commandAbortController = null;
+        handleApiFailure(errorMessage, errorCode);
+        debugLog("error event", {
+          type: "http-error",
+          code: errorCode,
+          message: errorMessage,
+        });
+        await returnToWakeMode({ reason: "api-error" });
+        return;
+      }
+
+      const payload = await response.json();
+      if (commandSessionId !== activeCommandSessionId) {
+        return;
+      }
+
+      commandAbortController = null;
+      updateDebug({
+        backendHttpStatus: response.status,
+        backendResponseReceivedAt: formatTimestamp(),
+        currentLanguage:
+          String(payload?.data?.language || "").trim() || detectDominantLanguage(payload?.reply || normalizedCommand),
+        category: String(payload.category || "").trim(),
+        selectedIntent: String(payload.intent || "").trim(),
+        selectedTool: String(payload.tool || "").trim(),
+        responseStatus: "completed",
+        responseStatusDetails: "Backend assistant reply received.",
+        finishReason: "completed",
+      });
+      debugLog("response.created", {
+        status: "completed",
+        status_details: "backend_text_route",
+      });
+      debugLog("response.output_item.done", {
+        type: "message",
+        replyLength: String(payload.reply || "").length,
+      });
+
+      if (typeof console !== "undefined" && typeof console.groupCollapsed === "function") {
+        console.groupCollapsed("[HALO Voice] command response");
+        console.info("intent", payload.intent);
+        console.info("tool", payload.tool);
+        console.info("reply", payload.reply);
+        console.info("data", payload.data || {});
+        console.groupEnd();
+      }
+
+      debugLog("selected intent/tool", {
+        intent: payload.intent,
+        tool: payload.tool,
+      });
+      debugLog("tool result", payload.data || {});
+      debugLog("response.done", {
+        status: "completed",
+        status_details: "backend_text_route",
+        finish_reason: "completed",
+        incomplete_details: "not_applicable_local_tts",
+      });
+
+      dispatchVoiceToolEvent({
+        tool: payload.tool,
+        arguments: { command: normalizedCommand, source },
+        result: payload,
+      });
+
+      await speakReply(payload.reply, { nextStep: "command-complete" });
+    } catch (error) {
+      commandAbortController = null;
+
+      if (error?.name === "AbortError") {
+        updateDebug({
+          responseCancelled: true,
+          responseCancelledBy: "abort",
+          sessionCloseReason: "abort",
+        });
+        debugLog("voice command cancelled");
+        return;
+      }
+
+      const errorMessage =
+        error instanceof Error && error.message
+          ? error.message
+          : "Unable to process the voice command.";
+      handleApiFailure(errorMessage, "");
+      debugLog("error event", {
+        type: "exception",
+        code: "",
+        message: errorMessage,
+      });
+      await returnToWakeMode({ reason: "command-error" });
+    }
+  }
+
+  async function startCommandListening({ source = "open-mic", initialCommand = "" } = {}) {
+    if (!SpeechRecognitionClass) {
+      handleRecognitionFailure("Voice recognition is unavailable in this browser.");
+      return;
+    }
+
+    if (initialCommand.trim()) {
+      await runVoiceCommand(initialCommand.trim(), { source });
+      return;
+    }
 
     try {
       await ensureMicrophonePermission();
-      recognition = new SpeechRecognitionClass();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
-      recognition.lang =
-        (Array.isArray(navigator.languages) && navigator.languages[0]) ||
-        navigator.language ||
-        "en-US";
+    } catch {
+      handleRecognitionFailure("Error: microphone unavailable");
+      return;
+    }
 
-      recognition.onresult = (event) => {
-        const transcript = Array.from(event.results || [])
-          .map((result) => result?.[0]?.transcript || "")
-          .join(" ");
+    clearTimers();
+    stopCommandRecognition();
+    stopWakeRecognition();
+    stopStopRecognition();
+    setPhase(VOICE_PHASES.COMMAND_LISTENING, { wakeModeActive: false });
+    updateDebug({
+      responseStatus: "listening",
+      responseStatusDetails: "Microphone open. Speak normally.",
+    });
 
-        if (!transcriptContainsWakeWord(transcript)) {
-          return;
-        }
+    const recognition = buildRecognitionInstance({
+      continuous: true,
+      interimResults: true,
+      lang: preferredCommandLanguage,
+    });
+    if (!recognition) {
+      handleRecognitionFailure("Voice recognition is unavailable in this browser.");
+      return;
+    }
 
-        debugLog("wake phrase detected", { transcript: transcript.slice(0, 120) });
-        void activateVoiceSession({ source: "wake-word" });
-      };
+    let hasSubmittedCommand = false;
+    let pendingFinalTranscript = "";
+    let bestInterimTranscript = "";
+    let minimumListenWindowElapsed = false;
 
-      recognition.onerror = (event) => {
-        if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
-          stopWakeRecognition({ manualOnly: true });
-          return;
-        }
+    const submitCommandIfReady = (force = false) => {
+      if (hasSubmittedCommand) {
+        return;
+      }
+      if (!force && !minimumListenWindowElapsed) {
+        return;
+      }
 
-        restartWakeRecognitionSoon();
-      };
+      const transcript = pendingFinalTranscript || (force ? bestInterimTranscript : "");
+      if (!transcript.trim()) {
+        return;
+      }
 
-      recognition.onend = () => {
-        recognition = null;
-        if (
-          isStarted &&
-          snapshot.voiceEnabled &&
-          shouldResumeWakeRecognition &&
-          !peerConnection &&
-          !isManualWakeMode
-        ) {
-          restartWakeRecognitionSoon();
-        }
-      };
+      hasSubmittedCommand = true;
+      if (commandSettleTimeoutId) {
+        window.clearTimeout(commandSettleTimeoutId);
+        commandSettleTimeoutId = null;
+      }
+      stopCommandRecognition();
+      void runVoiceCommand(transcript, { source });
+    };
 
+    const scheduleSettleSubmission = () => {
+      if (commandSettleTimeoutId) {
+        window.clearTimeout(commandSettleTimeoutId);
+      }
+      if (!minimumListenWindowElapsed || !pendingFinalTranscript.trim()) {
+        return;
+      }
+      commandSettleTimeoutId = window.setTimeout(() => {
+        commandSettleTimeoutId = null;
+        submitCommandIfReady(false);
+      }, COMMAND_SETTLE_DELAY_MS);
+    };
+
+    commandRecognition = recognition;
+    commandMinWindowTimeoutId = window.setTimeout(() => {
+      minimumListenWindowElapsed = true;
+      scheduleSettleSubmission();
+    }, MIN_COMMAND_LISTEN_WINDOW_MS);
+    commandMaxWindowTimeoutId = window.setTimeout(() => {
+      submitCommandIfReady(true);
+    }, MAX_COMMAND_LISTEN_WINDOW_MS);
+
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results || [])
+        .map((result) => result?.[0]?.transcript || "")
+        .join(" ")
+        .trim();
+
+      if (!transcript) {
+        return;
+      }
+
+      bestInterimTranscript = transcript;
+      preferredCommandLanguage = getPreferredRecognitionLanguage(transcript);
+      updateDebug({
+        currentLanguage: detectDominantLanguage(transcript),
+      });
+      const latestResult = event.results?.[event.results.length - 1];
+      if (latestResult?.isFinal) {
+        pendingFinalTranscript = transcript;
+        scheduleSettleSubmission();
+      }
+    };
+
+    recognition.onerror = (event) => {
+      stopCommandRecognition();
+      if (event?.error === "aborted" && hasSubmittedCommand) {
+        return;
+      }
+      if (event?.error === "no-speech") {
+        debugLog("open mic detected no speech");
+        void returnToWakeMode({ reason: "no-speech" });
+        return;
+      }
+      const errorMessage = buildRecognitionErrorMessage(event?.error);
+      handleRecognitionFailure(errorMessage);
+      void returnToWakeMode({ reason: "command-error" });
+    };
+
+    recognition.onend = () => {
+      commandRecognition = null;
+      if (hasSubmittedCommand || voicePhase !== VOICE_PHASES.COMMAND_LISTENING) {
+        return;
+      }
+      submitCommandIfReady(true);
+      if (hasSubmittedCommand) {
+        return;
+      }
+      debugLog("open mic session ended without transcript");
+      void returnToWakeMode({ reason: "listen-restart" });
+    };
+
+    try {
       recognition.start();
-      shouldResumeWakeRecognition = true;
-      isManualWakeMode = false;
-      snapshot.wakeRecognitionSupported = true;
-      snapshot.wakeModeActive = true;
-      snapshot.wakeEngine = "web-speech";
-      emit();
     } catch {
-      stopWakeRecognition({ manualOnly: true });
+      debugLog("duplicate session prevented", { phase: "command-listening" });
+      void returnToWakeMode({ reason: "command-restart" });
     }
   }
 
-  async function fetchVoiceSession() {
-    const response = await fetch(buildApiUrl(apiBaseUrl, "/api/voice/session"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": apiKey,
-      },
-      body: JSON.stringify({
-        client: "mirror",
-        output_modality: "audio",
-      }),
-    });
+  async function speakWakeGreetingAndListen({ source = "wake-word" } = {}) {
+    setPhase(VOICE_PHASES.ACKNOWLEDGING, { wakeModeActive: false });
+    const language = snapshot.debug.currentLanguage || detectDominantLanguage();
 
-    if (!response.ok) {
-      throw new Error(await parseErrorMessage(response));
-    }
-
-    return response.json();
-  }
-
-  async function ensureLocalStream() {
-    if (hasAudioTrack(localStream)) {
-      return localStream;
-    }
-
-    localStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
-
-    if (!hasAudioTrack(localStream)) {
-      throw new Error("Microphone audio is unavailable.");
-    }
-
-    return localStream;
-  }
-
-  function sendRealtimeEvent(eventPayload) {
-    if (!dataChannel || dataChannel.readyState !== "open") {
-      return false;
-    }
-
-    dataChannel.send(JSON.stringify(eventPayload));
-    return true;
-  }
-
-  async function executeFunctionCall(call) {
-    const toolName = call?.name;
-    const callId = call?.call_id;
-
-    if (!toolName || !callId) {
-      return;
-    }
-
-    let outputPayload;
     try {
-      let argumentsPayload = safeParseJson(call.arguments);
-
-      if (USER_SCOPED_TOOL_NAMES.has(toolName) && !argumentsPayload.userId) {
-        const fallbackUserId =
-          String(getUserContext()?.userId || getUserContext()?.accountId || "").trim() ||
-          "mirror-local";
-        argumentsPayload = {
-          ...argumentsPayload,
-          userId: fallbackUserId,
-        };
-      }
-
-      const result = await haloVoiceTools.executeTool(toolName, argumentsPayload);
-      debugLog("selected tool", { tool: toolName, arguments: argumentsPayload });
-      debugLog("tool result", result);
-      outputPayload = result;
-    } catch (error) {
-      outputPayload = {
-        tool: toolName,
-        status: "error",
-        message:
-          error instanceof Error && error.message
-            ? error.message
-            : "Tool execution failed.",
-      };
-    }
-
-    sendRealtimeEvent({
-      type: "conversation.item.create",
-      item: {
-        type: "function_call_output",
-        call_id: callId,
-        output: JSON.stringify(outputPayload),
-      },
-    });
-  }
-
-  function handleRealtimeMessage(event) {
-    let payload;
-    try {
-      payload = JSON.parse(event.data);
+      await activationSound.play();
     } catch {
+      // Best-effort only.
+    }
+
+    await speakReply(buildWakeGreeting(language), { nextStep: "wake-ack" });
+
+    if (!isStarted || !snapshot.voiceEnabled) {
       return;
     }
 
-    if (!payload || typeof payload !== "object") {
-      return;
-    }
-
-    switch (payload.type) {
-      case "input_audio_buffer.speech_started":
-        setStatus("listening");
-        resetActivityTimer();
-        break;
-      case "input_audio_buffer.speech_stopped":
-        setStatus("thinking");
-        resetActivityTimer();
-        break;
-      case "input_audio_buffer.timeout_triggered":
-        void stopListening();
-        break;
-      case "response.created":
-        setStatus("thinking");
-        resetActivityTimer();
-        break;
-      case "response.done": {
-        const outputItems = Array.isArray(payload?.response?.output)
-          ? payload.response.output
-          : [];
-        const functionCalls = outputItems.filter((item) => item?.type === "function_call");
-
-        if (!functionCalls.length) {
-          if (peerConnection && (!audioElement || audioElement.paused)) {
-            setStatus("listening");
-          }
-          resetActivityTimer();
-          schedulePostResponseClose();
-          break;
-        }
-
-        pendingToolExecution = pendingToolExecution.then(async () => {
-          setStatus("thinking");
-          for (const call of functionCalls) {
-            await executeFunctionCall(call);
-          }
-          sendRealtimeEvent({ type: "response.create" });
-          resetActivityTimer();
-        });
-        break;
-      }
-      case "error":
-        setStatus(
-          "error",
-          typeof payload?.error?.message === "string"
-            ? payload.error.message
-            : "Voice session error."
-        );
-        break;
-      default:
-        break;
+    if (voicePhase !== VOICE_PHASES.STOPPED && voicePhase !== VOICE_PHASES.ERROR) {
+      await startCommandListening({ source });
     }
   }
 
-  function attachRemoteAudio(stream) {
-    if (!audioElement) {
-      audioElement = new Audio();
-      audioElement.autoplay = true;
-      audioElement.playsInline = true;
-      audioElement.onplaying = () => {
-        setStatus("speaking");
-        resetActivityTimer();
-      };
-      audioElement.onended = () => {
-        if (peerConnection) {
-          setStatus("listening");
-          schedulePostResponseClose();
-        }
-      };
-      audioElement.onpause = () => {
-        if (peerConnection) {
-          setStatus("listening");
-          schedulePostResponseClose();
-        }
-      };
-    }
-
-    audioElement.srcObject = stream;
-    void audioElement.play().catch(() => {});
-  }
-
-  async function closeRealtimeSession({ restartWake = true } = {}) {
-    clearIdleTimer();
-    clearPostResponseCloseTimer();
-    isConnecting = false;
-    sessionMetadata = null;
-
-    if (recognition) {
-      stopWakeRecognition({ manualOnly: isManualWakeMode });
-    }
-
-    if (dataChannel) {
-      try {
-        dataChannel.close();
-      } catch {
-        // Ignore close errors.
-      }
-      dataChannel = null;
-    }
-
-    if (audioElement) {
-      try {
-        audioElement.pause();
-      } catch {
-        // Ignore pause errors.
-      }
-      audioElement.srcObject = null;
-      audioElement = null;
-    }
-
-    if (localStream) {
-      localStream.getTracks().forEach((track) => track.stop());
-      localStream = null;
-    }
-
-    if (peerConnection) {
-      try {
-        peerConnection.onconnectionstatechange = null;
-        peerConnection.ontrack = null;
-        peerConnection.close();
-      } catch {
-        // Ignore close errors.
-      }
-      peerConnection = null;
-    }
-
-    if (restartWake && isStarted) {
-      shouldResumeWakeRecognition = true;
-      setStatus("idle");
-      if (snapshot.voiceEnabled && !isManualWakeMode) {
-        void startWakeRecognition();
-      } else {
-        emit();
-      }
-      return;
-    }
-
-    shouldResumeWakeRecognition = false;
-    setStatus("idle");
-  }
-
-  async function activateVoiceSession({ source = "manual" } = {}) {
-    if (peerConnection || isConnecting) {
-      resetActivityTimer();
-      return;
-    }
-
+  async function startWakeListening({ restartReason = "startup" } = {}) {
     if (
-      typeof window === "undefined" ||
-      !window.RTCPeerConnection ||
-      !navigator.mediaDevices?.getUserMedia
+      !isStarted ||
+      !snapshot.voiceEnabled ||
+      !SpeechRecognitionClass ||
+      conversationModeActive ||
+      voicePhase === VOICE_PHASES.PROCESSING ||
+      voicePhase === VOICE_PHASES.SPEAKING ||
+      isRecognitionTransitioning
     ) {
-      setStatus("error", "Browser audio session support is unavailable.");
       return;
     }
 
-    isConnecting = true;
-    shouldResumeWakeRecognition = false;
-    persistVoiceEnabled(true);
-    stopWakeRecognition({ manualOnly: isManualWakeMode });
-    setStatus("listening");
-    emit();
-    debugLog("session started", { source });
+    clearTimers();
+    stopCommandRecognition();
+    stopStopRecognition();
+    stopWakeRecognition();
 
     try {
-      if (source === "wake-word") {
-        await activationSound.play();
-        await speakWakeGreeting();
+      await ensureMicrophonePermission();
+    } catch {
+      handleRecognitionFailure("Error: microphone unavailable");
+      return;
+    }
+
+    const recognition = buildRecognitionInstance({
+      continuous: true,
+      interimResults: true,
+      lang: getPreferredRecognitionLanguage(),
+    });
+    if (!recognition) {
+      handleRecognitionFailure("Wake word recognition is unavailable in this browser.");
+      return;
+    }
+
+    wakeRecognition = recognition;
+    setPhase(VOICE_PHASES.IDLE_WAKE_LISTENING, { wakeModeActive: true });
+    updateDebug({
+      wakeDetected: false,
+      selectedIntent: "",
+      selectedTool: "",
+      responseStatus: "idle",
+    });
+    debugLog("wake listener armed", { reason: restartReason });
+
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results || [])
+        .map((result) => result?.[0]?.transcript || "")
+        .join(" ")
+        .trim();
+
+      if (!transcriptContainsAnyPhrase(transcript, WAKE_WORDS)) {
+        return;
       }
 
-      const [voiceSession, toolDefinitions] = await Promise.all([
-        fetchVoiceSession(),
-        haloVoiceTools.getDefinitions(),
-      ]);
+      const inlineCommand = stripWakePhrase(transcript);
+      preferredCommandLanguage = getPreferredRecognitionLanguage(transcript);
+      const detectedLanguage = detectDominantLanguage(transcript);
+      setPhase(VOICE_PHASES.WAKE_DETECTED, { wakeModeActive: false });
+      updateDebug({
+        wakeDetected: true,
+        wakeDetectedAt: formatTimestamp(),
+        currentLanguage: detectedLanguage,
+      });
+      debugLog("wake phrase detected", {
+        transcript: normalizeTranscript(transcript).slice(0, 160),
+      });
 
-      localStream = await ensureLocalStream();
-
-      sessionMetadata = voiceSession?.metadata || null;
-      peerConnection = new RTCPeerConnection();
-      dataChannel = peerConnection.createDataChannel("oai-events");
-      dataChannel.onmessage = handleRealtimeMessage;
-
-      dataChannel.onopen = () => {
-        const serverInstructions = String(voiceSession?.metadata?.instructions || "").trim();
-        const shortReplyInstruction =
-          "Keep spoken answers to one short sentence.";
-        const routingInstruction =
-          "For mirror questions or commands, call route_halo_command with the user's exact request before answering whenever possible.";
-        const nextInstructions = [serverInstructions, routingInstruction, shortReplyInstruction]
-          .filter(Boolean)
-          .join("\n");
-
-        sendRealtimeEvent({
-          type: "session.update",
-          session: {
-            instructions: nextInstructions,
-            tools: toolDefinitions,
-            tool_choice: "auto",
-          },
+      stopWakeRecognition();
+      if (inlineCommand) {
+        void startCommandListening({
+          source: "wake-inline-command",
+          initialCommand: inlineCommand,
         });
-        resetActivityTimer();
-      };
-
-      peerConnection.ontrack = (event) => {
-        const [remoteStream] = event.streams || [];
-        if (remoteStream) {
-          attachRemoteAudio(remoteStream);
-          return;
-        }
-
-        attachRemoteAudio(new MediaStream([event.track]));
-      };
-
-      peerConnection.onconnectionstatechange = () => {
-        const state = peerConnection?.connectionState;
-        if (state === "failed" || state === "disconnected" || state === "closed") {
-          void closeRealtimeSession({ restartWake: true });
-        }
-      };
-
-      localStream.getTracks().forEach((track) => {
-        peerConnection.addTrack(track, localStream);
-      });
-
-      const offer = await peerConnection.createOffer({
-        offerToReceiveAudio: true,
-      });
-      await peerConnection.setLocalDescription(offer);
-
-      const realtimeResponse = await fetch(
-        `${REALTIME_API_BASE_URL}?model=${encodeURIComponent(
-          voiceSession?.metadata?.model || DEFAULT_MODEL
-        )}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${voiceSession.client_secret.value}`,
-            "Content-Type": "application/sdp",
-          },
-          body: offer.sdp,
-        }
-      );
-
-      if (!realtimeResponse.ok) {
-        throw new Error(await parseErrorMessage(realtimeResponse));
+        return;
       }
 
-      const answerSdp = await realtimeResponse.text();
-      await peerConnection.setRemoteDescription({
-        type: "answer",
-        sdp: answerSdp,
-      });
+      void speakWakeGreetingAndListen({ source: "wake-word" });
+    };
 
-      isConnecting = false;
-      setStatus("listening");
-      resetActivityTimer();
-    } catch (error) {
-      await closeRealtimeSession({ restartWake: true });
-      setStatus(
-        "error",
-        error instanceof Error && error.message
-          ? error.message
-          : "Unable to start Halo voice."
-      );
+    recognition.onerror = (event) => {
+      wakeRecognition = null;
+      if (event?.error === "aborted") {
+        return;
+      }
+      const errorMessage = buildRecognitionErrorMessage(event?.error);
+      if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
+        handleRecognitionFailure(errorMessage);
+        return;
+      }
+      debugLog("wake listener error", { error: event?.error });
+      recognitionRestartTimeoutId = window.setTimeout(() => {
+        void startWakeListening({ restartReason: "wake-error" });
+      }, RESTART_DELAY_MS);
+    };
+
+    recognition.onend = () => {
+      wakeRecognition = null;
+      if (!isStarted || !snapshot.voiceEnabled || voicePhase !== VOICE_PHASES.IDLE_WAKE_LISTENING) {
+        return;
+      }
+      recognitionRestartTimeoutId = window.setTimeout(() => {
+        void startWakeListening({ restartReason: "wake-end" });
+      }, RESTART_DELAY_MS);
+    };
+
+    try {
+      isRecognitionTransitioning = true;
+      recognition.start();
+      isRecognitionTransitioning = false;
+    } catch {
+      isRecognitionTransitioning = false;
+      debugLog("duplicate session prevented", { phase: "wake-listening" });
+      recognitionRestartTimeoutId = window.setTimeout(() => {
+        void startWakeListening({ restartReason: "wake-retry" });
+      }, RESTART_DELAY_MS);
     }
   }
 
-  async function stopListening() {
-    await closeRealtimeSession({ restartWake: true });
+  async function startStopPhraseListening() {
+    if (!SpeechRecognitionClass || snapshot.microphonePermission === "denied") {
+      return;
+    }
+
+    stopStopRecognition();
+
+    const recognition = buildRecognitionInstance({
+      continuous: true,
+      interimResults: true,
+    });
+    if (!recognition) {
+      return;
+    }
+
+    stopRecognition = recognition;
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results || [])
+        .map((result) => result?.[0]?.transcript || "")
+        .join(" ")
+        .trim();
+
+      if (!transcriptContainsAnyPhrase(transcript, STOP_PHRASES)) {
+        return;
+      }
+
+      updateDebug({
+        responseCancelled: true,
+        responseCancelledBy: "stop-phrase",
+        sessionCloseReason: "stop-phrase",
+      });
+      debugLog("stop phrase detected");
+      void stopListening({ reason: "stop-phrase" });
+    };
+
+    recognition.onerror = () => {
+      stopStopRecognition();
+    };
+
+    recognition.onend = () => {
+      stopRecognition = null;
+      if (voicePhase === VOICE_PHASES.SPEAKING) {
+        recognitionRestartTimeoutId = window.setTimeout(() => {
+          void startStopPhraseListening();
+        }, RESTART_DELAY_MS);
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      debugLog("duplicate session prevented", { phase: "stop-listening" });
+    }
+  }
+
+  async function stopListening({ reason = "manual-stop" } = {}) {
+    const interruptedDuringSpeech = voicePhase === VOICE_PHASES.SPEAKING;
+
+    setConversationMode(false);
+    clearTimers();
+    cancelCommandRequest();
+    stopAllRecognition();
+    cancelSpeech({
+      reason,
+      markCancelled: interruptedDuringSpeech || reason === "stop-phrase",
+    });
+    setPhase(VOICE_PHASES.STOPPED, { wakeModeActive: false });
+    updateDebug({
+      sessionCloseReason: reason,
+      sessionCloseBlocked: false,
+      responseCancelled:
+        interruptedDuringSpeech || reason === "stop-phrase" || snapshot.debug.responseCancelled,
+      responseCancelledBy:
+        interruptedDuringSpeech || reason === "stop-phrase"
+          ? reason
+          : snapshot.debug.responseCancelledBy,
+      responseStatus:
+        interruptedDuringSpeech || reason === "stop-phrase"
+          ? "cancelled"
+          : snapshot.debug.responseStatus,
+    });
+    debugLog("session close requested", {
+      reason,
+      manual: reason !== "stop-phrase",
+      responseCancelled: interruptedDuringSpeech || reason === "stop-phrase",
+    });
+
   }
 
   function handleKeydown(event) {
-    if (event.key === "Escape" && (peerConnection || isConnecting)) {
+    if (event.key === "Escape" && snapshot.status !== "idle") {
       event.preventDefault();
-      void stopListening();
+      void stopListening({ reason: "escape" });
       return;
     }
 
     if (event.ctrlKey && event.shiftKey && String(event.key).toLowerCase() === "h") {
       event.preventDefault();
-      void activateVoiceSession({ source: "manual" });
+      void activate();
     }
   }
 
   function handlePageHide() {
-    void closeRealtimeSession({ restartWake: false });
+    isStarted = false;
+    conversationModeActive = false;
+    clearTimers();
+    cancelCommandRequest();
+    stopAllRecognition();
+    cancelSpeech({ reason: "pagehide", markCancelled: false });
+  }
+
+  async function activate() {
+    persistVoiceEnabled(true);
+    setConversationMode(true);
+    preferredCommandLanguage = getPreferredRecognitionLanguage();
+    try {
+      await ensureMicrophonePermission();
+    } catch {
+      setConversationMode(false);
+      handleRecognitionFailure("Error: microphone unavailable");
+      return;
+    }
+
+    clearTimers();
+    cancelCommandRequest();
+    stopAllRecognition();
+    cancelSpeech({ reason: "manual-activate", markCancelled: false });
+    await startCommandListening({ source: "manual-conversation" });
   }
 
   function start() {
@@ -808,20 +1542,28 @@ export function createHaloVoiceClient({
     }
 
     isStarted = true;
+    updateDebug({
+      currentLanguage: detectDominantLanguage(),
+    });
     window.addEventListener("keydown", handleKeydown);
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("beforeunload", handlePageHide);
+    void fetchDebugConfig();
 
-    if (snapshot.voiceEnabled) {
-      void ensureMicrophonePermission().catch(() => {});
-    }
-
-    if (snapshot.voiceEnabled && SpeechRecognitionClass) {
-      void startWakeRecognition();
+    if (!snapshot.voiceEnabled) {
+      setPhase(VOICE_PHASES.STOPPED, { wakeModeActive: false });
       return;
     }
 
-    emit();
+    if (!SpeechRecognitionClass) {
+      setPhase(VOICE_PHASES.STOPPED, {
+        wakeModeActive: false,
+        errorMessage: "Voice recognition is unavailable in this browser.",
+      });
+      return;
+    }
+
+    void startWakeListening({ restartReason: "startup" });
   }
 
   function stop() {
@@ -829,42 +1571,54 @@ export function createHaloVoiceClient({
     window.removeEventListener("keydown", handleKeydown);
     window.removeEventListener("pagehide", handlePageHide);
     window.removeEventListener("beforeunload", handlePageHide);
-    stopWakeRecognition({ manualOnly: !SpeechRecognitionClass });
-    void closeRealtimeSession({ restartWake: false });
+    clearTimers();
+    cancelCommandRequest();
+    stopAllRecognition();
+    cancelSpeech({ reason: "shutdown", markCancelled: false });
+    setPhase(VOICE_PHASES.STOPPED, {
+      wakeModeActive: false,
+      errorMessage: lastErrorMessage,
+    });
   }
 
   return {
     start,
     stop,
-    activate() {
-      return activateVoiceSession({ source: "manual" });
-    },
+    activate,
     setVoiceEnabled(enabled) {
       persistVoiceEnabled(Boolean(enabled));
+
       if (!enabled) {
-        stopWakeRecognition({ manualOnly: !SpeechRecognitionClass });
-        void closeRealtimeSession({ restartWake: false });
-        snapshot.wakeModeActive = false;
-        emit();
+        setConversationMode(false);
+        clearTimers();
+        cancelCommandRequest();
+        stopAllRecognition();
+        cancelSpeech({ reason: "voice-disabled", markCancelled: false });
+        setPhase(VOICE_PHASES.STOPPED, { wakeModeActive: false });
         return;
       }
 
-      void ensureMicrophonePermission().catch(() => {});
-      if (isStarted && SpeechRecognitionClass && !peerConnection && !isConnecting) {
-        void startWakeRecognition();
+      if (!isStarted) {
+        return;
       }
-      emit();
+
+      void fetchDebugConfig();
+      if (conversationModeActive) {
+        void startCommandListening({ source: "conversation-resume" });
+        return;
+      }
+      void startWakeListening({ restartReason: "voice-enabled" });
     },
     stopListening,
     subscribe(listener) {
       listeners.add(listener);
-      listener({ ...snapshot });
+      listener({ ...snapshot, debug: { ...snapshot.debug, vad: { ...snapshot.debug.vad } } });
       return () => {
         listeners.delete(listener);
       };
     },
     getSnapshot() {
-      return { ...snapshot };
+      return { ...snapshot, debug: { ...snapshot.debug, vad: { ...snapshot.debug.vad } } };
     },
   };
 }

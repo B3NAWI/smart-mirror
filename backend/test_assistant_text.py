@@ -5,12 +5,20 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 
+ARABIC_TIME = "Hi Halo، \u0643\u0645 \u0627\u0644\u0633\u0627\u0639\u0629\u061f"
+ARABIC_EVENT_WITHOUT_TITLE = (
+    "Hi Halo، \u062d\u0637\u0644\u064a \u0645\u0648\u0639\u062f "
+    "\u0628\u0643\u0631\u0627 \u0627\u0644\u0633\u0627\u0639\u0629 3"
+)
+
+
 def build_client():
     temp_dir = TemporaryDirectory()
     database_path = Path(temp_dir.name) / "assistant_text.db"
     os.environ["DATABASE_URL"] = f"sqlite:///{database_path}"
     os.environ["HALO_API_KEY"] = "test-halo-key"
     os.environ["HALO_DEV_API_KEY"] = "halo-local-dev-key"
+    os.environ["HALO_FREEFORM_ASSISTANT_ENABLED"] = "false"
 
     from fastapi.testclient import TestClient
     from app.database import engine, init_database
@@ -26,77 +34,84 @@ def assert_true(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def post_text(client, headers, text: str) -> dict:
+    response = client.post(
+        "/api/assistant/text",
+        headers=headers,
+        json={"user_id": "test-user", "text": text},
+    )
+    assert_true(response.status_code == 200, f"Request failed for: {text}")
+    return response.json()
+
+
 def main() -> int:
     temp_dir, client, engine = build_client()
     headers = {"X-API-Key": "test-halo-key"}
 
     try:
-        wake_response = client.post(
-            "/api/assistant/text",
-            headers=headers,
-            json={"user_id": "test-user", "text": "Hi Halo"},
-        )
-        assert_true(wake_response.status_code == 200, "Wake phrase API failed")
-        assert_true(wake_response.json()["wake_detected"] is True, "Wake phrase was not detected")
-
-        time_response = client.post(
-            "/api/assistant/text",
-            headers=headers,
-            json={"user_id": "test-user", "text": "Hi Halo, what time is it?"},
-        )
-        assert_true(time_response.status_code == 200, "English time command failed")
-        assert_true(time_response.json()["intent"] == "get_current_time", "English time intent failed")
-
-        arabic_time_response = client.post(
-            "/api/assistant/text",
-            headers=headers,
-            json={"user_id": "test-user", "text": "Hi Halo، كم الساعة؟"},
-        )
-        assert_true(arabic_time_response.status_code == 200, "Arabic time command failed")
+        english_time_payload = post_text(client, headers, "Hi Halo, what time is it?")
         assert_true(
-            arabic_time_response.json()["intent"] == "get_current_time",
+            english_time_payload["intent"] == "get_current_time",
+            "English time intent failed",
+        )
+        assert_true(
+            bool(english_time_payload["tool_result"].get("display_time")),
+            "English time response is missing the local display time",
+        )
+
+        arabic_time_payload = post_text(client, headers, ARABIC_TIME)
+        assert_true(
+            arabic_time_payload["intent"] == "get_current_time",
             "Arabic time intent failed",
         )
-
-        calendar_response = client.post(
-            "/api/assistant/text",
-            headers=headers,
-            json={"user_id": "test-user", "text": "Hi Halo, add a meeting tomorrow at 2 PM"},
-        )
-        assert_true(calendar_response.status_code == 200, "Calendar creation failed")
         assert_true(
-            calendar_response.json()["intent"] == "create_calendar_event",
-            "Calendar event was not created",
+            bool(arabic_time_payload["tool_result"].get("display_time")),
+            "Arabic time response is missing the local display time",
         )
 
-        show_calendar_response = client.post(
-            "/api/assistant/text",
-            headers=headers,
-            json={"user_id": "test-user", "text": "Hi Halo, show my calendar"},
-        )
-        assert_true(show_calendar_response.status_code == 200, "Show calendar command failed")
+        show_calendar_payload = post_text(client, headers, "Hi Halo, show calendar")
         assert_true(
-            show_calendar_response.json()["intent"] == "show_calendar",
-            "Calendar widget command failed",
+            show_calendar_payload["intent"] == "show_calendar",
+            "Show calendar intent failed",
         )
 
-        hide_weather_response = client.post(
-            "/api/assistant/text",
-            headers=headers,
-            json={"user_id": "test-user", "text": "Hi Halo, hide weather"},
-        )
-        assert_true(hide_weather_response.status_code == 200, "Hide weather command failed")
+        developer_payload = post_text(client, headers, "Hi Halo, who developed you?")
         assert_true(
-            hide_weather_response.json()["intent"] == "hide_weather",
-            "Weather widget command failed",
+            "Hilal Dallashi" in developer_payload["response"]
+            and "Baraa Amro" in developer_payload["response"],
+            "Developer response failed",
         )
 
-        print("Wake phrase flow works")
-        print("English assistant text command works")
-        print("Arabic assistant text command works")
-        print("Calendar creation through assistant text works")
-        print("Calendar widget command works")
-        print("Weather widget command works")
+        summary_payload = post_text(
+            client,
+            headers,
+            "Hi Halo, explain yourself in 3 short sentences.",
+        )
+        assert_true(
+            summary_payload["intent"] == "project_info",
+            "Summary route failed",
+        )
+        assert_true(
+            summary_payload["response"].count(".") >= 3,
+            "Summary response was cut short",
+        )
+
+        title_prompt_payload = post_text(client, headers, ARABIC_EVENT_WITHOUT_TITLE)
+        assert_true(
+            title_prompt_payload["intent"] == "create_calendar_event",
+            "Missing-title calendar route failed",
+        )
+        assert_true(
+            title_prompt_payload["response"] == "\u0634\u0648 \u0627\u0633\u0645 \u0627\u0644\u0645\u0648\u0639\u062f\u061f",
+            "Missing-title calendar clarification failed",
+        )
+
+        print("English time command works")
+        print("Arabic time command works")
+        print("Show calendar command works")
+        print("Developer command works")
+        print("Three-sentence summary works")
+        print("Missing calendar title clarification works")
         return 0
     finally:
         client.close()

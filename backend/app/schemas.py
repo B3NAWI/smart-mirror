@@ -633,6 +633,7 @@ class HaloCommandRequest(BaseModel):
 
 class HaloCommandResponse(BaseModel):
     status: Literal["success", "error"]
+    category: str = "general_question"
     intent: str
     reply: str
     tool: str
@@ -664,13 +665,16 @@ class AssistantTextRequest(BaseModel):
 
 class AssistantTextResponse(BaseModel):
     wake_detected: bool
+    category: str
     intent: str
     tool_result: Dict[str, Any] = Field(default_factory=dict)
     response: str
+    selected_tool: Optional[str] = None
 
 
 VoiceSessionClient = Literal["mirror", "mobile", "unknown"]
 VoiceSessionOutputModality = Literal["audio", "text"]
+AssistantResponseProfile = Literal["normal", "general_question", "project_question"]
 
 
 class VoiceSessionRequest(BaseModel):
@@ -679,6 +683,7 @@ class VoiceSessionRequest(BaseModel):
     client: VoiceSessionClient = "unknown"
     output_modality: VoiceSessionOutputModality = "audio"
     voice: Optional[str] = None
+    response_profile: AssistantResponseProfile = "normal"
 
     @field_validator("voice", mode="before")
     @classmethod
@@ -707,6 +712,8 @@ class VoiceSessionMetadata(BaseModel):
     wake_words: List[str]
     primary_wake_phrase: str
     response_style: str
+    response_profile: AssistantResponseProfile = "normal"
+    available_voices: List[str] = Field(default_factory=list)
     supported_command_groups: List[str]
     tool_listing_path: str
     tool_execute_path: str

@@ -9,7 +9,7 @@ import DailyTipCard from "./components/DailyTipCard";
 import NewsCard from "./components/NewsCard";
 import HaloVoiceStatus from "./components/HaloVoiceStatus";
 import useMirrorGestureCamera from "./hooks/useMirrorGestureCamera";
-import { createHaloVoiceClient } from "./services/haloVoiceClient";
+import { createHaloVoiceController } from "./voice/haloVoiceController";
 
 const apiBaseUrl = (() => {
   const configured = (import.meta.env.VITE_BACKEND_URL || "").trim();
@@ -881,8 +881,10 @@ export default function Dashboard() {
     shortcutLabel: "Ctrl+Shift+H",
     voiceEnabled: true,
     wakeModeActive: false,
+    conversationModeActive: false,
     wakeEngine: "manual",
     microphonePermission: "prompt",
+    debug: {},
   });
   const [weatherRefreshKey, setWeatherRefreshKey] = useState(0);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
@@ -1552,7 +1554,7 @@ export default function Dashboard() {
   }, [profile.accountId, profile.accountName]);
 
   useEffect(() => {
-    const voiceClient = createHaloVoiceClient({
+    const voiceClient = createHaloVoiceController({
       apiBaseUrl,
       apiKey: runtimeApiKey,
       getUserContext: () => voiceContextRef.current,
@@ -1754,7 +1756,7 @@ export default function Dashboard() {
         shortcutLabel={voiceState.shortcutLabel}
         voiceEnabled={voiceState.voiceEnabled}
         wakeModeActive={voiceState.wakeModeActive}
-        wakeEngine={voiceState.wakeEngine}
+        conversationModeActive={voiceState.conversationModeActive}
         microphonePermission={voiceState.microphonePermission}
         onActivate={() => {
           void voiceClientRef.current?.activate();
@@ -1762,10 +1764,8 @@ export default function Dashboard() {
         onStop={() => {
           void voiceClientRef.current?.stopListening();
         }}
-        onToggleVoiceEnabled={(enabled) => {
-          voiceClientRef.current?.setVoiceEnabled(enabled);
-        }}
       />
+
     </div>
   );
 }

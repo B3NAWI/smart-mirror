@@ -3,6 +3,16 @@ from pathlib import Path
 from typing import List
 
 from dotenv import load_dotenv
+from assistant.behavior_config import (
+    GENERAL_QUESTION_MAX_TOKENS,
+    MAX_HISTORY_TURNS,
+    MAX_PROJECT_CONTEXT_CHARS,
+    MAX_TOOL_OUTPUT_CHARS,
+    MAX_USER_TEXT_CHARS,
+    NORMAL_MAX_TOKENS,
+    PROJECT_MAX_TOKENS,
+    WAKE_PHRASES,
+)
 from assistant.prompts import build_assistant_instructions
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -55,6 +65,26 @@ def _parse_int(
     return value
 
 
+def _parse_float(
+    env_name: str,
+    default: float,
+    *,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> float:
+    raw_value = os.getenv(env_name)
+    try:
+        value = float(raw_value) if raw_value is not None else default
+    except (TypeError, ValueError):
+        value = default
+
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
 def _normalize_database_url(database_url: str) -> str:
     sqlite_prefix = "sqlite:///"
     if not database_url.startswith(sqlite_prefix):
@@ -97,6 +127,8 @@ LOCAL_NETWORK_ORIGIN_REGEX = (
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_REALTIME_MODEL = os.getenv("OPENAI_REALTIME_MODEL", "gpt-realtime-2").strip() or "gpt-realtime-2"
+OPENAI_TEXT_MODEL = os.getenv("OPENAI_TEXT_MODEL", "gpt-5.5").strip() or "gpt-5.5"
+HALO_FREEFORM_ASSISTANT_ENABLED = _parse_bool("HALO_FREEFORM_ASSISTANT_ENABLED", False)
 NEWS_FEED_URL = os.getenv(
     "NEWS_FEED_URL",
     "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
@@ -104,12 +136,34 @@ NEWS_FEED_URL = os.getenv(
 NEWS_HEADLINES_LIMIT = _parse_int("NEWS_HEADLINES_LIMIT", 5, minimum=1, maximum=10)
 HALO_VOICE_ENABLED = _parse_bool("HALO_VOICE_ENABLED", True)
 HALO_MAX_INPUT_TOKENS = _parse_int("HALO_MAX_INPUT_TOKENS", 100000, minimum=1)
-HALO_MAX_OUTPUT_TOKENS = _parse_int(
-    "HALO_MAX_OUTPUT_TOKENS",
-    300,
+HALO_VOICE_NORMAL_MAX_OUTPUT_TOKENS = _parse_int(
+    "HALO_VOICE_NORMAL_MAX_OUTPUT_TOKENS",
+    NORMAL_MAX_TOKENS,
     minimum=1,
     maximum=4096,
 )
+HALO_VOICE_GENERAL_MAX_OUTPUT_TOKENS = _parse_int(
+    "HALO_VOICE_GENERAL_MAX_OUTPUT_TOKENS",
+    GENERAL_QUESTION_MAX_TOKENS,
+    minimum=100,
+    maximum=4096,
+)
+HALO_VOICE_DETAILED_MAX_OUTPUT_TOKENS = _parse_int(
+    "HALO_VOICE_DETAILED_MAX_OUTPUT_TOKENS",
+    PROJECT_MAX_TOKENS,
+    minimum=100,
+    maximum=4096,
+)
+HALO_MAX_OUTPUT_TOKENS = HALO_VOICE_NORMAL_MAX_OUTPUT_TOKENS
+HALO_MAX_USER_TEXT_CHARS = _parse_int("HALO_MAX_USER_TEXT_CHARS", MAX_USER_TEXT_CHARS, minimum=100, maximum=4000)
+HALO_MAX_TOOL_OUTPUT_CHARS = _parse_int("HALO_MAX_TOOL_OUTPUT_CHARS", MAX_TOOL_OUTPUT_CHARS, minimum=100, maximum=10000)
+HALO_MAX_PROJECT_CONTEXT_CHARS = _parse_int(
+    "HALO_MAX_PROJECT_CONTEXT_CHARS",
+    MAX_PROJECT_CONTEXT_CHARS,
+    minimum=500,
+    maximum=20000,
+)
+HALO_MAX_HISTORY_TURNS = _parse_int("HALO_MAX_HISTORY_TURNS", MAX_HISTORY_TURNS, minimum=0, maximum=10)
 HALO_VOICE_REASONING_EFFORT = os.getenv(
     "HALO_VOICE_REASONING_EFFORT",
     "low",
@@ -117,7 +171,7 @@ HALO_VOICE_REASONING_EFFORT = os.getenv(
 if HALO_VOICE_REASONING_EFFORT not in {"minimal", "low", "medium", "high", "xhigh"}:
     HALO_VOICE_REASONING_EFFORT = "low"
 HALO_WAKE_WORDS = _parse_csv(
-    os.getenv("HALO_WAKE_WORDS", "Hi Halo")
+    os.getenv("HALO_WAKE_WORDS", ",".join(WAKE_PHRASES))
 )
 HALO_PRIMARY_WAKE_PHRASE = HALO_WAKE_WORDS[0] if HALO_WAKE_WORDS else "Hi Halo"
 HALO_VOICE_IDLE_TIMEOUT_SECONDS = _parse_int(
@@ -132,11 +186,33 @@ HALO_VOICE_SESSION_TIMEOUT_SECONDS = _parse_int(
     minimum=10,
     maximum=7200,
 )
+HALO_VOICE_VAD_PREFIX_PADDING_MS = _parse_int(
+    "HALO_VOICE_VAD_PREFIX_PADDING_MS",
+    500,
+    minimum=0,
+    maximum=3000,
+)
+HALO_VOICE_VAD_SILENCE_DURATION_MS = _parse_int(
+    "HALO_VOICE_VAD_SILENCE_DURATION_MS",
+    1500,
+    minimum=1200,
+    maximum=4000,
+)
+HALO_VOICE_VAD_THRESHOLD = _parse_float(
+    "HALO_VOICE_VAD_THRESHOLD",
+    0.5,
+    minimum=0.1,
+    maximum=1.0,
+)
 HALO_VOICE_SUPPORTED_COMMAND_GROUPS = [
-    "calendar",
-    "weather",
-    "youtube",
-    "reminders",
-    "screen_on_off",
+    "general_question",
+    "project_question",
+    "calendar_command",
+    "weather_command",
+    "youtube_command",
+    "reminder_command",
+    "screen_command",
+    "mirror_ui_command",
+    "time_command",
 ]
-HALO_VOICE_ASSISTANT_INSTRUCTIONS = build_assistant_instructions(HALO_PRIMARY_WAKE_PHRASE)
+HALO_VOICE_ASSISTANT_INSTRUCTIONS = build_assistant_instructions()
